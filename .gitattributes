@@ -1,0 +1,22 @@
+# Normalize line endings: detect text vs binary, store text as LF in the repo.
+* text=auto
+
+# Source / docs / config: LF everywhere (repo and working tree).
+*.py          text eol=lf
+*.md          text eol=lf
+*.json        text eol=lf
+*.txt         text eol=lf
+*.gitignore   text eol=lf
+*.gitattributes text eol=lf
+
+# Windows batch must stay CRLF (cmd.exe).
+*.bat         text eol=crlf
+
+# Treat these as binary if ever added (no line-ending munging).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary

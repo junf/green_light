@@ -1,0 +1,29 @@
+# Local working notes / Claude Code handoff (private; remove this line to commit)
+CLAUDE.md
+
+# Environment-specific config (create by copying config.example.json)
+config.json
+
+# Dedicated Chrome debug profile
+.chrome-debug-profile/
+
+# Output logs (e.g. when output_dir is the default "logs")
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Claude Code local settings (per-machine MCP/permissions)
+.claude/settings.local.json

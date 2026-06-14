@@ -1,0 +1,21 @@
+{
+  "output_dir": "logs",
+  "log_filename": "console.log",
+  "overwrite": true,
+  "port": 9222,
+  "chrome_exe": "",
+  "profile_dir": "",
+  "start_url": "",
+
+  "url_filter": "",
+  "url_filter_presets": [
+    { "label": "Production",          "filter": "example.com", "url": "https://example.com/" },
+    { "label": "Local dev",           "filter": "localhost",   "url": "http://localhost:3000/" },
+    { "label": "All pages (no filter)", "filter": "",          "url": "" }
+  ],
+  "startup_menu": false,
+  "filter_enabled": false,
+
+  "timestamp": false,
+  "stack_for_trace": true
+}
