@@ -121,6 +121,18 @@ start.bat https://example.com/
 | `timestamp` | `true` で各行頭に `[HH:MM:SS]` | `false` |
 | `stack_for_trace` | `console.trace` のスタックも出す | `true` |
 
+> **Windows のパス指定について**：`config.json` は JSON のため、`\`（円記号 / バックスラッシュ）は
+> エスケープ文字として扱われる。Windows の絶対パスを書くときは区切りを **`\\`（2つ重ね）** にすること。
+> 対象は `output_dir` / `chrome_exe` / `profile_dir` などパスを取るキー全部。
+>
+> ```json
+> "output_dir":  "C:\\Users\\you\\logs",
+> "chrome_exe":  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+> ```
+>
+> `\\` の代わりに **`/`（スラッシュ）**でも可（`"C:/Users/you/logs"`）。
+> `\` を1つだけ書くと JSON として不正になり、起動時に読み込みエラーになる。
+
 ## 仕組み（メモ）
 
 - Chrome を `--remote-debugging-port` + 専用 `--user-data-dir` で起動する
