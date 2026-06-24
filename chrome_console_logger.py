@@ -29,6 +29,8 @@ Stop:
   Press Ctrl+C in this window (only logging stops; Chrome stays open)
 """
 
+from __future__ import annotations
+
 import io
 import json
 import os
@@ -143,7 +145,7 @@ def resolve_startup():
                             URL; type the address yourself; logs from
                             non-matching pages are excluded)"""
     presets = CFG.get("url_filter_presets") or []
-    enabled = CFG.get("filter_enabled", True)
+    enabled = CFG["filter_enabled"]
     if CFG.get("startup_menu") and presets:
         flt, url = choose_filter()
         return (([flt] if flt else []) if enabled else []), url
@@ -153,6 +155,8 @@ def resolve_startup():
     if not filters:
         single = (CFG.get("url_filter") or "").strip()
         filters = [single] if single else []
+    if not filters:
+        print("[warn] filter_enabled is true but no filter is configured; recording all pages.")
     return filters, ""
 
 
@@ -228,12 +232,16 @@ def fmt_ro(o: dict) -> str:
     """Stringify a CDP RemoteObject."""
     if "value" in o:
         v = o["value"]
+        if v is None:                       # JS null (not Python None)
+            return "null"
+        if isinstance(v, bool):             # before any int handling: bool is a subclass of int
+            return "true" if v else "false"
         if isinstance(v, str):
             return v
         if isinstance(v, (dict, list)):
             return json.dumps(v, ensure_ascii=False)
         return str(v)
-    if o.get("subtype") == "null":
+    if o.get("subtype") == "null":          # defensive fallback (a null RemoteObject normally carries value=null)
         return "null"
     if o.get("type") == "undefined":
         return "undefined"
@@ -451,7 +459,6 @@ def main():
             print(f"[info] No matching tab; opening: {start_url}")
             send("Target.createTarget", {"url": start_url})
 
-    attached = set()
     if active_filters:
         print(f"[info] Active filters: {', '.join(active_filters)}")
     else:
@@ -474,7 +481,6 @@ def main():
                 ti = p.get("targetInfo", {})
                 new_sid = p.get("sessionId")
                 if ti.get("type") == "page" and new_sid:
-                    attached.add(ti.get("targetId"))
                     u = ti.get("url", "")
                     session_url[new_sid] = u
                     note_exclusion(u)
@@ -488,6 +494,9 @@ def main():
                     u = frame.get("url", "")
                     session_url[sid] = u
                     note_exclusion(u)
+
+            elif method == "Target.detachedFromTarget":
+                session_url.pop(p.get("sessionId"), None)   # drop closed tab's URL (avoid slow dict growth)
 
             elif method == "Runtime.consoleAPICalled":
                 if is_active(sid):
