@@ -50,7 +50,7 @@ copy config.example.json config.json
 
 ## 使い方
 
-1. `start.bat` をダブルクリック（または `python chrome_console_logger.py`）
+1. `gl.bat` をダブルクリック（または `python chrome_console_logger.py`）
 2. 専用プロファイルの Chrome が立ち上がる
 3. 記録したいページのアドレスを **自分で入力**して開く
 4. **すべてのページ**のコンソール出力が出力先ファイルに記録される
@@ -62,11 +62,29 @@ copy config.example.json config.json
 起動時に URL を渡すと、その URL を開いた状態で立ち上がる：
 
 ```bat
-start.bat https://example.com/
+gl.bat https://example.com/
 ```
 
 > 同時に2つ以上ロガーを起動すると同じログファイルに二重書き込みになるため、
 > 起動し直すときは前のロガーのターミナルを `Ctrl+C` で止めてから。
+
+### コマンドライン引数
+
+`gl.bat`（および `python chrome_console_logger.py`）に渡せる引数：
+
+| 引数 | 説明 |
+|------|------|
+| `<URL>`（位置引数） | 起動時に開く URL。`config.json` の `start_url` より優先 |
+| `--config <名前>` / `-c <名前>` | 使う設定セットを指定。名前（`rose` → `config.rose.json`）でもパスでも可。`default` は `config.json`。詳細は下の「プロジェクト毎に設定を切り替える」参照 |
+
+- `--config=<名前>` / `-c=<名前>` の **等号付き**表記も可。
+- URL と `--config` は**併用**できる（順不同）。
+- 引数を何も付けなければ、設定セットは対話選択（ダブルクリック時）または `config.json`、URL は `start_url` の値が使われる。
+
+```bat
+:: rose 用の設定で、起動時に指定 URL を開く
+gl.bat --config rose https://example.com/
+```
 
 ### 記録中にログファイルを消したら
 
@@ -132,6 +150,28 @@ start.bat https://example.com/
 >
 > `\\` の代わりに **`/`（スラッシュ）**でも可（`"C:/Users/you/logs"`）。
 > `\` を1つだけ書くと JSON として不正になり、起動時に読み込みエラーになる。
+
+### プロジェクト毎に設定を切り替える（任意）
+
+出力先やファイル名などをプロジェクト別に分けたいときは、設定ファイルを
+`config.<名前>.json` として複数用意して切り替える。
+
+    :: rose 用の設定を作る（テンプレからコピーして編集）
+    copy config.example.json config.rose.json
+
+切り替え方は2通り:
+
+- **コマンドラインで指定**: `gl.bat --config rose`（デフォルトを明示するなら `gl.bat --config default`）
+- **ダブルクリックで対話選択**: `gl.bat` をそのまま実行すると、開いたコンソールで
+  設定セットの一覧が出る。番号か名前を入力（`ENTER` だけならデフォルトの `config.json`）。
+
+補足:
+- `--config` を付けたときは対話を出さない（バッチ/自動化向け）。`--config default` は `config.json`。
+- 値は名前（`rose` → `config.rose.json`）でもパス（`C:\path\my.json`）でもよい。
+- `--config` で指定したファイルが無いときは、誤った場所への記録を防ぐためエラー終了する
+  （`default` は例外で、`config.json` が無くても従来どおり既定値で起動）。
+- `config.<名前>.json` は Git 管理対象外（`config.example.json` だけ追跡される）。
+- 各設定で `port` と `profile_dir` を別にすれば、複数プロジェクトのロガーを同時に動かせる。
 
 ## 仕組み（メモ）
 

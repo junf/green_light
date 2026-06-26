@@ -42,7 +42,78 @@ import urllib.request
 from websocket import create_connection, WebSocketException
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
+
+
+def parse_cli(argv):
+    """Split CLI args into (config_ref, start_url).
+    --config NAME / -c NAME / --config=NAME selects a config set.
+    A lone positional argument is still treated as the start URL (backward compatible)."""
+    config_ref, url = "", ""
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--config", "-c") and i + 1 < len(argv):
+            config_ref = argv[i + 1]
+            i += 2
+            continue
+        if a.startswith("--config="):
+            config_ref = a[len("--config="):]
+        elif a.startswith("-c="):
+            config_ref = a[len("-c="):]
+        elif not a.startswith("-") and not url:
+            url = a
+        i += 1
+    return config_ref, url
+
+
+def resolve_config_path(ref: str) -> str:
+    """Map a config reference to a file path.
+    - ""                 -> <script>/config.json   (default; unchanged behavior)
+    - "rose"             -> <script>/config.rose.json
+    - "...json" / a path -> used as-is (relative paths resolved against the script folder)"""
+    if not ref:
+        return os.path.join(SCRIPT_DIR, "config.json")
+    is_path = ref.endswith(".json") or ("/" in ref) or ("\\" in ref) or os.path.isabs(ref)
+    name = ref if is_path else f"config.{ref}.json"
+    return name if os.path.isabs(name) else os.path.join(SCRIPT_DIR, name)
+
+
+def choose_config() -> str:
+    """Interactive config-set picker (used when no --config was given).
+    Lists config.*.json files (excluding config.json / config.example.json) and
+    lets the user pick by number or name. ENTER selects the default (config.json).
+    Returns "" for the default. Skips silently when not interactive or none exist."""
+    try:
+        if not sys.stdin or not sys.stdin.isatty():
+            return ""
+    except Exception:
+        return ""
+    names = []
+    for fn in sorted(os.listdir(SCRIPT_DIR)):
+        if (fn.startswith("config.") and fn.endswith(".json")
+                and fn not in ("config.json", "config.example.json")):
+            names.append(fn[len("config."):-len(".json")])
+    if not names:
+        return ""   # no config sets to choose from -> default
+    print("=" * 50)
+    print("Select a config set (ENTER = default config.json):")
+    for i, n in enumerate(names, 1):
+        print(f"  {i}. {n}  [config.{n}.json]")
+    print("=" * 50)
+    try:
+        ans = input("Number or name (ENTER = default): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""
+    if not ans:
+        return ""
+    if ans.isdigit():
+        k = int(ans)
+        if 1 <= k <= len(names):
+            return names[k - 1]
+        print("[warn] Out of range; using default config.json.")
+        return ""
+    return ans   # a name or path typed directly
+
 
 DEFAULTS = {
     "output_dir": "logs",       # relative paths are resolved against the script folder
@@ -61,24 +132,30 @@ DEFAULTS = {
 }
 
 
-def load_config() -> dict:
+def load_config(path, explicit: bool = False) -> dict:
     cfg = dict(DEFAULTS)
-    if os.path.exists(CONFIG_PATH):
+    if os.path.exists(path):
         try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 user = json.load(f)
             cfg.update({k: v for k, v in user.items() if v != "" or k in ("url_filter", "start_url", "profile_dir")})
         except Exception as e:
-            print(f"[warn] Could not read config.json (using defaults): {e}")
+            print(f"[warn] Could not read {os.path.basename(path)} (using defaults): {e}")
+    elif explicit:
+        # A config set was explicitly chosen but its file is missing: stop rather
+        # than silently logging to the default location.
+        print(f"[error] Config file not found: {path}")
+        sys.exit(1)
     else:
-        print(f"[warn] config.json not found (running with defaults): {CONFIG_PATH}")
+        print(f"[warn] config.json not found (running with defaults): {path}")
         print("       To customize, copy config.example.json to config.json.")
     if not cfg.get("profile_dir"):
         cfg["profile_dir"] = os.path.join(SCRIPT_DIR, ".chrome-debug-profile")
     return cfg
 
 
-CFG = load_config()
+CFG = None          # set in main() after the config set is resolved
+CONFIG_PATH = None  # set in main(); kept for diagnostics
 
 if isinstance(sys.stdout, io.TextIOWrapper):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -366,11 +443,20 @@ def page_tabs():
 
 
 def main():
-    global _log_path
+    global _log_path, CFG, CONFIG_PATH
+    # Resolve which config set to use: --config flag wins; otherwise prompt (interactive); else default.
+    config_ref, cli_url = parse_cli(sys.argv[1:])
+    if not config_ref:                       # no --config on the command line
+        config_ref = choose_config()         # interactive picker (returns "" for default / non-TTY)
+    if config_ref.strip().lower() == "default":
+        config_ref = ""                      # explicit default: use config.json, no prompt, no error
+    CONFIG_PATH = resolve_config_path(config_ref)
+    CFG = load_config(CONFIG_PATH, explicit=bool(config_ref))   # "" (default) is never a hard error
+    print(f"[info] Config: {CONFIG_PATH}")
     # Decide active filters and the URL to open at startup (behavior depends on startup_menu)
     active_filters, preset_url = resolve_startup()
     # URL-to-open priority: command-line arg > preset url > config.start_url
-    start_url = sys.argv[1] if len(sys.argv) > 1 else (preset_url or CFG["start_url"])
+    start_url = cli_url or preset_url or CFG["start_url"]
     # Output dir (relative paths are resolved against the script folder)
     out_dir = CFG["output_dir"]
     if not os.path.isabs(out_dir):
