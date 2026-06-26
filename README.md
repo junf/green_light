@@ -101,15 +101,19 @@ gl.bat --config rose https://example.com/
 メインフレームの URL に、設定した文字列を含むページだけが記録対象になる
 （ログイン画面など別ドメインは除外）。
 
-- `startup_menu: false` … `url_filter_presets` の全 `filter` が同時に有効
-- `startup_menu: true` … 起動時メニューで1つだけ選ぶ（候補に `url` があれば自動で開く）
+- `filter_menu: false` … `url_filter_presets` の全 `filter` が同時に有効
+- `filter_menu: true` … 起動時メニューで1つだけ選ぶ（候補に `url` があれば自動で開く）
+
+`filter_menu` は `filter_enabled: true` のときだけ働く。フィルタ無効
+（`filter_enabled: false`）ならメニューは出ず全ページ記録（URL は `start_url` /
+コマンドライン引数で開く）。
 
 > フィルタ有効時の安全策として、対象外のページを開くとターミナルに
 > 「フィルタ対象外なので記録しません: <URL>」と表示される。フィルタの設定忘れで
 > 無言のまま記録できていない、という事態を防ぐため。
 > 既定でフィルタを切ってあるのも、この「気づけないデータ欠落」を避けるため。
 
-起動時メニューの表示例（`startup_menu: true` のとき）:
+フィルタ選択メニューの表示例（`filter_enabled: true` かつ `filter_menu: true` のとき）:
 
 ```
 ==================================================
@@ -133,9 +137,9 @@ gl.bat --config rose https://example.com/
 | `profile_dir` | デバッグ用 Chrome のプロファイル保存先（空ならこのフォルダ内 `.chrome-debug-profile`） | 空 |
 | `start_url` | 起動時に開く URL（コマンドライン引数が優先） | 空 |
 | `filter_enabled` | `false`=フィルタ無効（全ページ記録） / `true`=フィルタで絞り込み | `false` |
-| `startup_menu` | `false`=メニュー無し（全プリセットのフィルタを同時有効・URLは開かない） / `true`=起動時に1つ選ぶ | `false` |
+| `filter_menu` | （`filter_enabled: true` のときのみ）`false`=メニュー無し（全プリセットのフィルタを同時有効・URLは開かない） / `true`=起動時にフィルタを1つ選ぶ（その `url` を開く） | `false` |
 | `url_filter` | プリセットが空のときの絞り込み文字列（メインフレーム URL に含むページのみ記録） | 空 |
-| `url_filter_presets` | 記録対象の候補。`[{ "label": 表示名, "filter": 絞り込み文字列, "url": 開くURL }, ...]`。`url` は `startup_menu: true` で選択時に開く（任意） | 例: Production / Local dev / All |
+| `url_filter_presets` | 記録対象の候補。`[{ "label": 表示名, "filter": 絞り込み文字列, "url": 開くURL }, ...]`。`url` は `filter_menu: true` で選択時に開く（任意） | 例: Production / Local dev / All |
 | `timestamp` | `true` で各行頭に `[HH:MM:SS]` | `false` |
 | `stack_for_trace` | `console.trace` のスタックも出す | `true` |
 

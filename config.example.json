@@ -13,7 +13,7 @@
     { "label": "Local dev",           "filter": "localhost",   "url": "http://localhost:3000/" },
     { "label": "All pages (no filter)", "filter": "",          "url": "" }
   ],
-  "startup_menu": false,
+  "filter_menu": false,
   "filter_enabled": false,
 
   "timestamp": false,

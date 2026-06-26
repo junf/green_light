@@ -125,7 +125,7 @@ DEFAULTS = {
     "start_url": "",
     "url_filter": "",           # empty = all tabs; otherwise a substring to match in the URL
     "url_filter_presets": [],   # candidates ([{label, filter, url}, ...])
-    "startup_menu": False,      # True = pick one from a menu at startup / False = enable all preset filters (do not open a URL)
+    "filter_menu": False,       # (only when filter_enabled) True = pick one preset from a menu at startup / False = enable all preset filters at once
     "filter_enabled": False,    # False = filtering disabled (record all pages / recommended). True = filter by the settings above
     "timestamp": False,         # True = prefix each line with [HH:MM:SS]
     "stack_for_trace": True,    # also print the stack trace for console.trace
@@ -217,17 +217,20 @@ def choose_filter():
 
 def resolve_startup():
     """Decide the startup (list of active filters, URL to open).
-    - startup_menu = True : pick one from a menu (open that candidate's url)
-    - startup_menu = False: enable all non-empty preset filters (do not open a
-                            URL; type the address yourself; logs from
-                            non-matching pages are excluded)"""
+    When filter_enabled is False, filtering is off (record all pages) and
+    filter_menu is ignored (no menu, no URL opened; use start_url / CLI).
+    When filter_enabled is True:
+    - filter_menu = True : pick one preset from a menu (open that preset's url)
+    - filter_menu = False: enable all non-empty preset filters (do not open a
+                           URL; type the address yourself; logs from
+                           non-matching pages are excluded)"""
     presets = CFG.get("url_filter_presets") or []
     enabled = CFG["filter_enabled"]
-    if CFG.get("startup_menu") and presets:
-        flt, url = choose_filter()
-        return (([flt] if flt else []) if enabled else []), url
     if not enabled:
-        return [], ""   # filtering disabled = record all pages
+        return [], ""   # filtering disabled = record all pages (filter_menu ignored)
+    if CFG.get("filter_menu") and presets:
+        flt, url = choose_filter()
+        return ([flt] if flt else []), url
     filters = [p.get("filter", "").strip() for p in presets if p.get("filter", "").strip()]
     if not filters:
         single = (CFG.get("url_filter") or "").strip()
@@ -453,7 +456,7 @@ def main():
     CONFIG_PATH = resolve_config_path(config_ref)
     CFG = load_config(CONFIG_PATH, explicit=bool(config_ref))   # "" (default) is never a hard error
     print(f"[info] Config: {CONFIG_PATH}")
-    # Decide active filters and the URL to open at startup (behavior depends on startup_menu)
+    # Decide active filters and the URL to open at startup (behavior depends on filter_enabled / filter_menu)
     active_filters, preset_url = resolve_startup()
     # URL-to-open priority: command-line arg > preset url > config.start_url
     start_url = cli_url or preset_url or CFG["start_url"]
