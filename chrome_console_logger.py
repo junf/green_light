@@ -151,6 +151,11 @@ def load_config(path, explicit: bool = False) -> dict:
         print("       To customize, copy config.example.json to config.json.")
     if not cfg.get("profile_dir"):
         cfg["profile_dir"] = os.path.join(SCRIPT_DIR, ".chrome-debug-profile")
+    try:
+        cfg["port"] = int(cfg["port"])   # keep port numeric (it is interpolated into URLs / a Chrome flag)
+    except (TypeError, ValueError):
+        print(f"[warn] Invalid port {cfg.get('port')!r}; using {DEFAULTS['port']}.")
+        cfg["port"] = DEFAULTS["port"]
     return cfg
 
 
@@ -410,6 +415,24 @@ def endpoint_alive():
         return None
 
 
+def safe_url(url: str) -> str:
+    """Sanitize a startup URL before handing it to Chrome.
+    Rejects values that look like a command-line switch (a leading "-", which
+    Chrome would parse as a flag, e.g. "--disable-web-security") and inline /
+    executable schemes (javascript:, data:). Returns "" for rejected input."""
+    u = (url or "").strip()
+    if not u:
+        return ""
+    if u.startswith("-"):
+        print(f"[warn] Ignoring start URL that looks like a flag: {u}")
+        return ""
+    low = u.lower()
+    if low.startswith("javascript:") or low.startswith("data:"):
+        print(f"[warn] Ignoring disallowed URL scheme: {u}")
+        return ""
+    return u
+
+
 def launch_chrome(url: str):
     args = [
         CFG["chrome_exe"],
@@ -422,7 +445,9 @@ def launch_chrome(url: str):
         "--no-default-browser-check",
     ]
     if url:
-        args.append(url)
+        # "--" makes everything after it a positional arg (a URL), never a switch,
+        # so a flag-shaped start_url cannot inject a Chrome flag.
+        args += ["--", url]
     subprocess.Popen(args, close_fds=True)
 
 
@@ -459,13 +484,20 @@ def main():
     # Decide active filters and the URL to open at startup (behavior depends on filter_enabled / filter_menu)
     active_filters, preset_url = resolve_startup()
     # URL-to-open priority: command-line arg > preset url > config.start_url
-    start_url = cli_url or preset_url or CFG["start_url"]
+    start_url = safe_url(cli_url or preset_url or CFG["start_url"])
     # Output dir (relative paths are resolved against the script folder)
     out_dir = CFG["output_dir"]
     if not os.path.isabs(out_dir):
         out_dir = os.path.join(SCRIPT_DIR, out_dir)
     CFG["output_dir"] = out_dir
-    log_path = os.path.join(out_dir, CFG["log_filename"])
+    # Keep the log inside output_dir: reduce log_filename to a bare name so a path /
+    # absolute value cannot escape (and truncate an arbitrary file on overwrite).
+    raw_name = str(CFG["log_filename"])
+    log_name = os.path.basename(raw_name) or DEFAULTS["log_filename"]
+    if log_name != raw_name:
+        print(f"[warn] log_filename reduced to a bare name: {log_name}")
+    CFG["log_filename"] = log_name
+    log_path = os.path.join(out_dir, log_name)
 
     already = endpoint_alive()
     if already:
