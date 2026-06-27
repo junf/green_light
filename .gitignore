@@ -1,6 +1,9 @@
 # Local working notes / Claude Code handoff (private; remove this line to commit)
 CLAUDE.md
 
+# Private design memos / plans
+plans/
+
 # Environment-specific config sets (copied from config.example.json; one per project)
 config.json
 config.*.json
