@@ -156,7 +156,11 @@ def load_config(path, explicit: bool = False) -> dict:
     if not cfg.get("profile_dir"):
         cfg["profile_dir"] = os.path.join(SCRIPT_DIR, ".chrome-debug-profile")
     try:
-        cfg["port"] = int(cfg["port"])   # keep port numeric (it is interpolated into URLs / a Chrome flag)
+        p = int(cfg["port"])             # keep port numeric (it is interpolated into URLs / a Chrome flag)
+        if not (1 <= p <= 65535):
+            print(f"[warn] Port {p} out of range; using {DEFAULTS['port']}.")
+            p = DEFAULTS["port"]
+        cfg["port"] = p
     except (TypeError, ValueError):
         print(f"[warn] Invalid port {cfg.get('port')!r}; using {DEFAULTS['port']}.")
         cfg["port"] = DEFAULTS["port"]
@@ -651,7 +655,9 @@ def main():
     # Keep the log inside output_dir: reduce log_filename to a bare name so a path /
     # absolute value cannot escape (and truncate an arbitrary file on overwrite).
     raw_name = str(CFG["log_filename"])
-    log_name = os.path.basename(raw_name) or DEFAULTS["log_filename"]
+    log_name = os.path.basename(raw_name)
+    if log_name in ("", ".", ".."):   # never let the log path resolve to a directory
+        log_name = DEFAULTS["log_filename"]
     if log_name != raw_name:
         print(f"[warn] log_filename reduced to a bare name: {log_name}")
     CFG["log_filename"] = log_name
