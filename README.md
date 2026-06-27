@@ -50,7 +50,7 @@ copy config.example.json config.json
 
 ## 使い方
 
-1. `gl.bat` をダブルクリック（または `python chrome_console_logger.py`）
+1. `glog.bat` をダブルクリック（または `python chrome_console_logger.py`）
 2. 専用プロファイルの Chrome が立ち上がる
 3. 記録したいページのアドレスを **自分で入力**して開く
 4. **すべてのページ**のコンソール出力が出力先ファイルに記録される
@@ -62,7 +62,7 @@ copy config.example.json config.json
 起動時に URL を渡すと、その URL を開いた状態で立ち上がる：
 
 ```bat
-gl.bat https://example.com/
+glog.bat https://example.com/
 ```
 
 > 同時に2つ以上ロガーを起動すると同じログファイルに二重書き込みになるため、
@@ -70,20 +70,20 @@ gl.bat https://example.com/
 
 ### コマンドライン引数
 
-`gl.bat`（および `python chrome_console_logger.py`）に渡せる引数：
+`glog.bat`（および `python chrome_console_logger.py`）に渡せる引数：
 
 | 引数 | 説明 |
 |------|------|
 | `<URL>`（位置引数） | 起動時に開く URL。`config.json` の `start_url` より優先 |
-| `--config <名前>` / `-c <名前>` | 使う設定セットを指定。名前（`rose` → `config.rose.json`）でもパスでも可。`default` は `config.json`。詳細は下の「プロジェクト毎に設定を切り替える」参照 |
+| `--config <名前>` / `-c <名前>` | 使う設定セットを指定。名前（`myapp` → `config.myapp.json`）でもパスでも可。`default` は `config.json`。詳細は下の「プロジェクト毎に設定を切り替える」参照 |
 
 - `--config=<名前>` / `-c=<名前>` の **等号付き**表記も可。
 - URL と `--config` は**併用**できる（順不同）。
 - 引数を何も付けなければ、設定セットは対話選択（ダブルクリック時）または `config.json`、URL は `start_url` の値が使われる。
 
 ```bat
-:: rose 用の設定で、起動時に指定 URL を開く
-gl.bat --config rose https://example.com/
+:: myapp 用の設定で、起動時に指定 URL を開く
+glog.bat --config myapp https://example.com/
 ```
 
 ### 記録中にログファイルを消したら
@@ -135,6 +135,9 @@ gl.bat --config rose https://example.com/
 | `port` | リモートデバッグポート | `9222` |
 | `chrome_exe` | Chrome の実行ファイルパス（空なら自動検出） | 空（自動検出） |
 | `profile_dir` | デバッグ用 Chrome のプロファイル保存先（空ならこのフォルダ内 `.chrome-debug-profile`） | 空 |
+| `source` | 記録対象。`desktop`=この PC の Chrome を起動して記録 / `android`=USB 接続端末の Chrome を記録（後述） | `desktop` |
+| `adb_path` | `source: android` 時の adb のパス（空なら PATH と一般的な SDK の場所から自動検出） | 空 |
+| `device_serial` | `source: android` 時の対象端末（空なら唯一の端末。複数接続時は `adb devices` の serial を指定） | 空 |
 | `start_url` | 起動時に開く URL（コマンドライン引数が優先） | 空 |
 | `filter_enabled` | `false`=フィルタ無効（全ページ記録） / `true`=フィルタで絞り込み | `false` |
 | `filter_menu` | （`filter_enabled: true` のときのみ）`false`=メニュー無し（全プリセットのフィルタを同時有効・URLは開かない） / `true`=起動時にフィルタを1つ選ぶ（その `url` を開く） | `false` |
@@ -160,22 +163,78 @@ gl.bat --config rose https://example.com/
 出力先やファイル名などをプロジェクト別に分けたいときは、設定ファイルを
 `config.<名前>.json` として複数用意して切り替える。
 
-    :: rose 用の設定を作る（テンプレからコピーして編集）
-    copy config.example.json config.rose.json
+    :: myapp 用の設定を作る（テンプレからコピーして編集）
+    copy config.example.json config.myapp.json
 
 切り替え方は2通り:
 
-- **コマンドラインで指定**: `gl.bat --config rose`（デフォルトを明示するなら `gl.bat --config default`）
-- **ダブルクリックで対話選択**: `gl.bat` をそのまま実行すると、開いたコンソールで
+- **コマンドラインで指定**: `glog.bat --config myapp`（デフォルトを明示するなら `glog.bat --config default`）
+- **ダブルクリックで対話選択**: `glog.bat` をそのまま実行すると、開いたコンソールで
   設定セットの一覧が出る。番号か名前を入力（`ENTER` だけならデフォルトの `config.json`）。
 
 補足:
 - `--config` を付けたときは対話を出さない（バッチ/自動化向け）。`--config default` は `config.json`。
-- 値は名前（`rose` → `config.rose.json`）でもパス（`C:\path\my.json`）でもよい。
+- 値は名前（`myapp` → `config.myapp.json`）でもパス（`C:\path\my.json`）でもよい。
 - `--config` で指定したファイルが無いときは、誤った場所への記録を防ぐためエラー終了する
   （`default` は例外で、`config.json` が無くても従来どおり既定値で起動）。
 - `config.<名前>.json` は Git 管理対象外（`config.example.json` だけ追跡される）。
 - 各設定で `port` と `profile_dir` を別にすれば、複数プロジェクトのロガーを同時に動かせる。
+
+### USB 接続した Android 端末の Chrome を記録する（任意）
+
+`chrome://inspect` を開いて手でコピペする代わりに、USB 接続した Android 端末の
+Chrome コンソールを PC 版と同じ仕組みでファイルに連続記録できる。仕組みは
+`adb forward` で端末の DevTools を localhost に橋渡しし、あとは通常どおり CDP で
+アタッチするだけ（端末側のソースには手を入れない）。
+
+**前提**:
+
+- **adb（Android platform-tools）** が入っていること（PATH か `adb_path` で指定）。
+- 端末で**開発者オプション → USB デバッグを ON**。初回接続時は端末に出る
+  **認証ダイアログを「許可」**（`adb devices` で `device` と出れば OK／`unauthorized`
+  なら未許可）。
+- 記録したい端末側の **Chrome を開いておく**こと。
+
+**設定**（`config.android.json` を作る例）:
+
+```jsonc
+{
+  "source": "android",
+  "port": 9333,                 // ← デスクトップ版の 9222 と必ず分ける（後述）
+  "adb_path": "",               // 空 = 自動検出
+  "device_serial": "",          // 空 = 唯一の端末 / 複数なら adb devices の serial
+  "output_dir": "logs-android",
+  "log_filename": "console.log",
+  "filter_enabled": true,       // ← Android では特に ON 推奨（下記プライバシー参照）
+  "url_filter": "example.com"   // 記録したいサイトのドメイン（複数なら url_filter_presets）
+}
+```
+
+> ⚠ **Android では `filter_enabled: true` を強く推奨**。デスクトップは自分専用の
+> プロファイルを起動するが、Android は**自分の実機 Chrome**に繋ぐため、個人利用のタブ
+> （ネット銀行・通販・SNS など）も同じ Chrome で開いていることが多い。フィルタ無効
+> （全ページ記録）のままだと、それらの console まで記録され、特に `output_dir` を同期
+> フォルダにしているとクラウドへ流出しかねない。`filter_enabled: true` にして
+> `url_filter`（または `url_filter_presets`）で**記録対象を目的サイトに限定**すること。
+> クラウドの AI へ渡す前にも中身を確認する。
+
+**実行**:
+
+```bat
+glog.bat --config android
+```
+
+→ adb で端末の DevTools を `localhost:<port>` に転送し、Android Chrome に
+アタッチして記録を開始する。停止は `Ctrl+C`（終了時に転送も自動で解除）。
+
+> ℹ️ 端末は**ロック中や設定アプリを開いている間は `offline` 扱い**になる。起動時に端末が
+> オンラインでなければ「画面ロックを解除してください」と促して**自動で待機**し、
+> オンラインになり次第そのまま記録を開始する（`adb devices` で `device` になる状態）。
+
+> ⚠ **ポートはデスクトップ版と分けること**。`port` が既に使われていると
+> `adb forward` は失敗する。本ツールは**失敗を握りつぶさずエラー終了**し、さらに
+> 接続先が本当に端末か（Android Chrome か）を検証する。これは、別の Chrome が
+> 同じポートを使っているときに**誤って PC の Chrome へ繋いでしまう事故**を防ぐため。
 
 ## 仕組み（メモ）
 
