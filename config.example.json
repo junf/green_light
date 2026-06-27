@@ -25,7 +25,7 @@
     { "label": "All pages (no filter)", "filter": "", "url": "" }
   ],
   "filter_menu": false,
-  "filter_enabled": true,
+  "filter_enabled": false,
 
   "timestamp": false,
   "stack_for_trace": true
