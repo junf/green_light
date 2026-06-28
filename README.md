@@ -1,20 +1,23 @@
 # green_light
 
-> 現状の実装（エントリポイント）は `chrome_console_logger.py` で、いまは Chrome
-> （PC・および USB 接続の Android 端末）のコンソール出力の記録に対応しています。
+**[English](README.en.md)** | 日本語
 
-Chrome DevTools のコンソール出力（ログ・警告・エラー・例外）を、テキストファイルへ
-自動記録するツール。DevTools を開いていなくても、専用の Chrome を立ち上げている間は
-コンソールの内容がファイルに書き出され続ける。
+**Chrome DevTools のコンソール出力（ログ・警告・エラー・例外）を、テキストファイルへ自動記録する
+ツール。記録対象は2つ — この PC の Chrome と、USB 接続した Android 端末の Chrome。**
 
-Chrome DevTools Protocol (CDP) を使い、ブラウザにアタッチしてコンソールイベントを
-受け取る方式。対象ページのソースに手を入れる必要はない。
+DevTools を開いていなくても、専用の Chrome を立ち上げている間（または対象端末を USB で繋いでいる間）は、
+コンソールの内容がファイルに書き出され続ける。Chrome DevTools Protocol (CDP) でブラウザにアタッチして
+コンソールイベントを受け取る方式なので、対象ページのソースには一切手を入れない。
 
-**PC の Chrome に加えて、USB 接続した Android 端末の Chrome も記録できる。**
-`chrome://inspect` を開いて DevTools の出力を手でコピペする代わりに、モバイルの
-コンソール（ログ・例外・ネットワークエラー等）をそのままファイルへ流し続けられる。
-スマホ実機のデバッグログを AI に渡すのがコピペ無しで完結する（詳細は
-「Android 端末の Chrome を記録する」節）。
+### 📱 USB 接続した Android 端末の Chrome も記録できる
+
+これは PC 向けだけのロガーではない。**USB 接続したスマホ実機の Chrome コンソールを、そのまま
+Windows 側のテキストファイルに連続記録できる**のが大きな特徴。`chrome://inspect` を開いて DevTools の
+出力を手でコピペする必要はなく、モバイルのコンソール（ログ・例外・ネットワークエラー等）が、
+実機の画面遷移・リロードをまたいでファイルへ流れ続ける。結果として **スマホ実機のデバッグログを、
+コピペ無しでそのまま AI に渡せる**。手順は「[Android 端末の Chrome を記録する](#android-端末の-chrome-を記録するusb--cdp-over-adb)」節を参照。
+
+> 現状の実装（エントリポイント）は `chrome_console_logger.py`。
 
 ## 位置づけ（なぜこれを使うか）
 
@@ -117,16 +120,25 @@ glog.bat --config myapp https://example.com/
 
 ### フィルタを使いたいとき（任意）
 
-特定ドメインだけ記録したい場合は `config.json` の `filter_enabled` を `true` にする。
-メインフレームの URL に、設定した文字列を含むページだけが記録対象になる
-（ログイン画面など別ドメインは除外）。
+特定ドメインだけ記録したい場合のメインスイッチが `filter_enabled`。まずここを切り替える。
 
-- `filter_menu: false` … `url_filter_presets` の全 `filter` が同時に有効
-- `filter_menu: true` … 起動時メニューで1つだけ選ぶ（候補に `url` があれば自動で開く）
+- **`filter_enabled: false`（既定）** … フィルタ無効。**全ページ**を記録する。起動メニューも
+  出さず、URL は `start_url` / コマンドライン引数で開く。
+- **`filter_enabled: true`** … フィルタ有効。メインフレームの URL に、設定した文字列を含む
+  ページ**だけ**が記録対象になる（ログイン画面など別ドメインは除外）。
 
-`filter_menu` は `filter_enabled: true` のときだけ働く。フィルタ無効
-（`filter_enabled: false`）ならメニューは出ず全ページ記録（URL は `start_url` /
-コマンドライン引数で開く）。
+> ⚠ **`filter_enabled: true` にしたら、記録したいサイトを必ず `url_filter_presets`
+> （単一サイトなら `url_filter`）に指定すること。** 指定が空のままだと「フィルタ設定なし」の
+> 警告が出て **全ページ記録にフォールバック**し、絞り込みの意味がなくなる（＝意図せぬフィルタ漏れ）。
+> 記録対象は各 preset の `filter`（メインフレーム URL に含む文字列）で判定され、
+> **`url_filter_presets` が優先・`url_filter` はフォールバック**。ログイン/認証フローが複数
+> ドメインにまたがる場合は、必要なドメインを preset に並べておく。
+
+`filter_enabled: true` のとき、複数のフィルタ候補を**どう適用するか**を決めるのが `filter_menu`
+（`filter_enabled: false` のときは無視され、メニューも出ない）:
+
+- **`filter_menu: false`（既定）** … `url_filter_presets` の全 `filter` が同時に有効
+- **`filter_menu: true`** … 起動時メニューで1つだけ選ぶ（その候補に `url` があれば自動で開く）
 
 > フィルタ有効時の安全策として、対象外のページを開くとターミナルに
 > `[info] Not recording (no filter match; ...)` と表示される（画面表示は英語）。
