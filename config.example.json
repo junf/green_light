@@ -8,6 +8,7 @@
   "source": "desktop",
   "adb_path": "",
   "device_serial": "",
+  "safaridriver_path": "",
   "start_url": "",
 
   "url_filter": "",

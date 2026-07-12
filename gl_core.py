@@ -108,8 +108,9 @@ DEFAULTS = {
     "port": 9222,
     "chrome_exe": "",           # empty = auto-detect chrome.exe from common locations
     "profile_dir": "",          # empty = <script folder>\.chrome-debug-profile
-    "source": "desktop",        # "desktop" (launch local Chrome) | "android" (USB device via adb forward)
+    "source": "desktop",        # "desktop" (launch local Chrome) | "android" (USB device via adb forward) | "safari" (macOS Safari via WebDriver BiDi)
     "adb_path": "",             # android: empty = find adb on PATH / common SDK locations
+    "safaridriver_path": "",    # safari: empty = find safaridriver on PATH (macOS built-in)
     "device_serial": "",        # android: empty = the only device; otherwise adb -s <serial>
     "start_url": "",
     "url_filter": "",           # empty = all tabs; otherwise a substring to match in the URL
@@ -124,7 +125,7 @@ DEFAULTS = {
 # Config values that name a file or directory. A leading "~" in them is expanded to
 # the home directory (macOS / Linux configs are commonly written that way; without
 # this, "~/logs" would be treated as a relative path and create a literal "~" folder).
-_PATH_KEYS = ("output_dir", "profile_dir", "chrome_exe", "adb_path")
+_PATH_KEYS = ("output_dir", "profile_dir", "chrome_exe", "adb_path", "safaridriver_path")
 
 
 def _expand_user_paths(cfg: dict) -> None:
@@ -460,14 +461,25 @@ def page_tabs():
         return []
 
 
+# ---- log-file lifecycle (shared by every capture path) ----------
+def begin_log(log_path):
+    """Open the output file for logging: ensure output_dir exists, clear the file
+    once when overwrite is set, arm out() (via _log_path), and write the start
+    marker. Shared by the CDP run loop and non-CDP sources (e.g. Safari/BiDi)."""
+    global _log_path
+    os.makedirs(CFG["output_dir"], exist_ok=True)
+    if CFG["overwrite"]:
+        open(log_path, "w", encoding="utf-8").close()   # clear once at startup
+    _log_path = log_path   # from here on, out() opens/closes (append) on every write
+    out(f"# === console logging started {time.strftime('%Y-%m-%d %H:%M:%S')} ===")
+
+
 # ---- main run loop (source-independent) -------------------------
 def run(source, start_url, active_filters, log_path):
     """Connect via `source`, then capture console/exception/log output until
     Ctrl+C. `source.connect(start_url)` returns (version_info, start_url_opened):
     start_url_opened=True means the source already opened the URL (e.g. a fresh
     Chrome launch), so we skip opening it via CDP."""
-    global _log_path
-
     info, start_url_opened = source.connect(start_url)
 
     try:
@@ -484,11 +496,7 @@ def run(source, start_url, active_filters, log_path):
         sys.exit(1)
     ws.settimeout(1.0)   # periodic wake so Ctrl+C is handled promptly (esp. on Windows, idle pages)
 
-    os.makedirs(CFG["output_dir"], exist_ok=True)
-    if CFG["overwrite"]:
-        open(log_path, "w", encoding="utf-8").close()   # clear once at startup
-    _log_path = log_path   # from here on, out() opens/closes (append) on every write
-    out(f"# === console logging started {time.strftime('%Y-%m-%d %H:%M:%S')} ===")
+    begin_log(log_path)   # ensure output_dir, clear on overwrite, arm out(), write start marker
 
     _id = [0]
 

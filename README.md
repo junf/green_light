@@ -203,9 +203,10 @@ Enter a number (Enter = 3):
 | `port` | リモートデバッグポート | `9222` |
 | `chrome_exe` | Chrome の実行ファイルパス（空なら自動検出） | 空（自動検出） |
 | `profile_dir` | デバッグ用 Chrome のプロファイル保存先（空ならこのフォルダ内 `.chrome-debug-profile`） | 空 |
-| `source` | 記録対象。`desktop`=この PC の Chrome を起動して記録 / `android`=USB 接続端末の Chrome を記録（後述） | `desktop` |
+| `source` | 記録対象。`desktop`=この PC の Chrome を起動して記録 / `android`=USB 接続端末の Chrome を記録（後述） / `safari`=この Mac の Safari を記録（後述・macOS 専用） | `desktop` |
 | `adb_path` | `source: android` 時の adb のパス（空なら PATH と一般的な SDK の場所から自動検出） | 空 |
 | `device_serial` | `source: android` 時の対象端末（空なら唯一の端末。複数接続時は `adb devices` の serial を指定） | 空 |
+| `safaridriver_path` | `source: safari` 時の safaridriver のパス（空なら PATH から自動検出。通常 macOS 同梱で指定不要） | 空 |
 | `start_url` | 起動時に開く URL（コマンドライン引数が優先） | 空 |
 | `filter_enabled` | `false`=フィルタ無効（全ページ記録） / `true`=フィルタで絞り込み | `false` |
 | `filter_menu` | （`filter_enabled: true` のときのみ）`false`=メニュー無し（全プリセットのフィルタを同時有効・URLは開かない） / `true`=起動時にフィルタを1つ選ぶ（その `url` を開く） | `false` |
@@ -339,6 +340,82 @@ glog.bat --config android
 > 接続先が本当に端末か（Android Chrome か）を検証する。これは、別の Chrome が
 > 同じポートを使っているときに**誤って PC の Chrome へ繋いでしまう事故**を防ぐため。
 
+## Mac の Safari を記録する（macOS / WebDriver BiDi）【実験的】
+
+> ⚠️ **この機能は実験段階です。** Safari の WebDriver BiDi は本稿執筆時点で**実験扱い**で、
+> 内部で未公開のキャパビリティ `safari:experimentalWebSocketUrl` を要求している（これが無いと
+> BiDi の WebSocket URL が返らない）。**Safari 26.2 で動作確認済み**だが、この解錠方法は Apple の
+> 公式ドキュメントに記載が無く、Safari のバージョン更新で名称・挙動が変わる／使えなくなる可能性が
+> ある。うまく繋がらない場合はまず Safari のバージョンと「リモートオートメーション」設定を確認すること。
+
+この Mac の **Safari** のコンソールも記録できる（`source: safari`）。Safari は CDP を
+話さないため、Chrome 系とは別経路（macOS 同梱の `safaridriver` + **WebDriver BiDi**）で
+コンソール／未捕捉例外を受け取り、同じテキストファイルに追記する。
+
+### 1. 一度だけ「リモートオートメーション」を許可する
+
+Safari を自動化から制御するには、**一度だけ**次のいずれかを実施する（管理者権限が要る）：
+
+```sh
+sudo safaridriver --enable
+```
+
+または **Safari > 設定 > 詳細 で「メニューバーに"開発"メニューを表示」を有効化 →
+Safari > 開発 > 「リモートオートメーションを許可」にチェック**。
+
+> ⚠ 本ツールは `safaridriver --enable`（要 sudo）を**自分では実行しない**。上記は利用者が
+> 一度だけ手で行う前提。これはセキュリティ上の昇格操作なので、意図せず有効化しないため。
+
+### 2. 設定して起動する
+
+`config.safari.json` の例（`start_url` は**必須**。理由は下記「最大の制限」）：
+
+```json
+{
+  "output_dir": "logs",
+  "source": "safari",
+  "start_url": "https://example.com/",
+  "timestamp": true
+}
+```
+
+```sh
+./glog.sh --config safari https://example.com/   # 記録したいページを指定して起動
+```
+
+自動化用の Safari ウィンドウが開き（「Safari は自動テストによって制御されています」の表示）、
+指定した URL が読み込まれ、そのページのコンソール出力を記録する。停止は `Ctrl+C`（他ソースと同じ）。
+
+### ⚠ 最大の制限：自動化ウィンドウは手動操作できない
+
+Safari は自動化ウィンドウの上に **「グラスペイン」** と呼ばれる透明な膜をかぶせ、
+**マウス・キーボード操作を遮断する**（WebKit 公式の設計：
+[WebDriver Support in Safari 10](https://webkit.org/blog/6900/webdriver-support-in-safari-10/) —
+*"Safari installs a 'glass pane' over the Automation window while the test is running. This blocks
+any stray interactions (mouse, keyboard, resizing, and so on)"*）。
+無理に操作するとダイアログが出て、そこで「セッションを停止」を選ぶと
+**WebDriver セッションが切断され、記録も終了する**。
+
+したがって `source: safari` では、Chrome 版のように
+**「人間がブラウザを手で操作して不具合を再現し、そのログを記録する」ことはできない**。
+記録できるのは `start_url` で開いたページの読み込み時以降に出るログ（自動で発生する
+コンソール出力・未捕捉例外など）に限られる。
+
+> 手動操作しながらの記録は Chrome（`source: desktop` / `android`）を使うこと。
+> Safari でも手動操作を可能にするには、WebDriver 以外の経路（Safari 拡張による
+> コンソールのフック等）が必要で、これは**将来対応の課題**。
+
+### Safari 版のその他の制限（Chrome 版との差）
+
+- **URL フィルタは無効**：Safari の BiDi ログにはページの識別情報が乗らないため、
+  `url_filter` / プリセットは `source: safari` では無視され、**全ページ**を記録する。
+- **行番号プレフィックスが付かない**：Safari はコンソール行にソース位置を付けないため、
+  Chrome 版のような `file.js:12` の接頭辞は出ない（メッセージ本文はそのまま記録される）。
+- **ログイン状態を引き継がない**：自動化ウィンドウは通常の Safari とは別プロファイル。
+- **macOS 専用**：`safaridriver` は macOS 同梱。Windows / Linux では使えない。
+- WebDriver BiDi は現状 Safari では実験扱いのため、内部で
+  `safari:experimentalWebSocketUrl` を要求している。
+
 ## 仕組み（メモ）
 
 - Chrome を `--remote-debugging-port` + 専用 `--user-data-dir` で起動する
@@ -368,6 +445,9 @@ glog.bat --config android
 - **Chrome のサンドボックスを弱めない**。`--no-sandbox` や `--disable-web-security` は使いません。
 - **Android 記録も localhost 限定**。`adb forward` はホスト側 `127.0.0.1` にのみバインドするため、
   端末を記録する場合も CDP が LAN/外部に出ることはありません。
+- **Safari 記録も localhost 限定**。`safaridriver` の WebDriver サーバと BiDi WebSocket は
+  `127.0.0.1` にバインドされ、本ツールもそこへのみ接続します。`safaridriver --enable`（要 sudo）は
+  **利用者が一度だけ手で行う前提で、本ツールは実行しません**。
 
 運用側で気をつけること:
 
@@ -377,7 +457,7 @@ glog.bat --config android
   クラウド同期フォルダに置かない・他者と共有しないこと。
 - 出力ログ自体に機微情報（トークン・個人情報など）が混じる場合があります。クラウドの AI へ
   渡す前・出力フォルダを同期する前に中身を確認してください。
-- `config.json` の `chrome_exe` / `adb_path`（いずれも起動する実行ファイル）と
+- `config.json` の `chrome_exe` / `adb_path` / `safaridriver_path`（いずれも起動する実行ファイル）と
   URL は信頼できる値に保つこと。**他者から受け取った／同期されてきた config をそのまま使わない**
   （実行ファイルや出力先が差し替えられ、任意プログラム実行・任意の場所への書き込みになり得るため）。
 

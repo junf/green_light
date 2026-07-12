@@ -217,9 +217,10 @@ Enter a number (Enter = 3):
 | `port` | Remote debugging port | `9222` |
 | `chrome_exe` | Path to the Chrome executable (auto-detect if empty) | empty (auto-detect) |
 | `profile_dir` | Profile location for the debug Chrome (if empty, `.chrome-debug-profile` inside this folder) | empty |
-| `source` | Recording target. `desktop` = launch and record this PC's Chrome / `android` = record a USB-connected device's Chrome (see below) | `desktop` |
+| `source` | Recording target. `desktop` = launch and record this PC's Chrome / `android` = record a USB-connected device's Chrome (see below) / `safari` = record this Mac's Safari (see below; macOS-only) | `desktop` |
 | `adb_path` | Path to adb for `source: android` (auto-detect from PATH and common SDK locations if empty) | empty |
 | `device_serial` | Target device for `source: android` (empty = the only device; for multiple devices, specify the serial from `adb devices`) | empty |
+| `safaridriver_path` | Path to safaridriver for `source: safari` (auto-detect from PATH if empty; normally macOS built-in, so no need to set) | empty |
 | `start_url` | URL to open on launch (a command-line argument takes precedence) | empty |
 | `filter_enabled` | `false` = filtering off (record all pages) / `true` = narrow down with filters | `false` |
 | `filter_menu` | (only when `filter_enabled: true`) `false` = no menu (all preset filters active at once; doesn't open a URL) / `true` = pick one filter at startup (and open its `url`) | `false` |
@@ -358,6 +359,80 @@ recording. Stop with `Ctrl+C` (the forward is also removed automatically on exit
 > really a device (Android Chrome).** This prevents the accident of **mistakenly connecting to the PC's
 > Chrome** when another Chrome is using the same port.
 
+## Recording this Mac's Safari (macOS / WebDriver BiDi) [Experimental]
+
+> ⚠️ **This feature is experimental.** Safari's WebDriver BiDi is, as of this writing, **experimental**: we
+> internally request the undocumented capability `safari:experimentalWebSocketUrl` (without it, Safari does
+> not return a BiDi WebSocket URL). **Verified working on Safari 26.2**, but this unlock is not in Apple's
+> official docs and may be renamed / changed / removed by a Safari update. If it fails to connect, first check
+> your Safari version and the "Allow Remote Automation" setting.
+
+You can also record the console of this Mac's **Safari** (`source: safari`). Safari does not speak CDP, so it
+uses a separate path from the Chrome-family sources (macOS's built-in `safaridriver` + **WebDriver BiDi**) to
+receive console / uncaught-exception entries and append them to the same text file.
+
+### 1. Allow Remote Automation once
+
+To control Safari from automation, do one of the following **once** (requires admin):
+
+```sh
+sudo safaridriver --enable
+```
+
+Or **Safari > Settings > Advanced > enable "Show features for web developers" → Safari > Develop > check
+"Allow Remote Automation"**.
+
+> ⚠ This tool **never runs `safaridriver --enable` (needs sudo) itself**. The step above is a one-time manual
+> action by the user, since it is a privileged change we don't want to make implicitly.
+
+### 2. Configure and launch
+
+Example `config.safari.json` (`start_url` is **required** — see "The big limitation" below):
+
+```json
+{
+  "output_dir": "logs",
+  "source": "safari",
+  "start_url": "https://example.com/",
+  "timestamp": true
+}
+```
+
+```sh
+./glog.sh --config safari https://example.com/   # launch with the page you want to record
+```
+
+An automation Safari window opens (with a "Safari is under automation" banner), loads that URL, and its console
+output is recorded. Stop with `Ctrl+C` (same as other sources).
+
+### ⚠ The big limitation: you cannot interact with the automation window
+
+Safari covers the automation window with a transparent **"glass pane"** that **blocks mouse and keyboard
+input** — this is by design (WebKit:
+[WebDriver Support in Safari 10](https://webkit.org/blog/6900/webdriver-support-in-safari-10/) —
+*"Safari installs a 'glass pane' over the Automation window while the test is running. This blocks any stray
+interactions (mouse, keyboard, resizing, and so on)"*). Trying to interact pops up a dialog; choosing
+**"Stop Session"** there **severs the WebDriver session and ends the recording**.
+
+So with `source: safari` you **cannot** do what the Chrome version allows — *drive the browser by hand to
+reproduce a bug and record its console*. You only get the log output of the page opened via `start_url`
+(console output and uncaught exceptions that occur on their own from load time onward).
+
+> To record while driving the browser by hand, use Chrome (`source: desktop` / `android`).
+> Making Safari hand-drivable requires a non-WebDriver path (e.g. hooking `console.*` from a Safari
+> extension); that is **future work**.
+
+### Other Safari limitations (vs the Chrome version)
+
+- **URL filtering is disabled**: Safari's BiDi log entries carry no page identity, so `url_filter` / presets
+  are ignored for `source: safari` and **all pages** are recorded.
+- **No line-number prefix**: Safari does not attach a source location to console lines, so there is no
+  `file.js:12` prefix like the Chrome version (the message body itself is recorded as-is).
+- **No login state**: the automation window uses a separate profile from your normal Safari.
+- **macOS only**: `safaridriver` ships with macOS; it is not available on Windows / Linux.
+- WebDriver BiDi is currently experimental in Safari, so internally we request
+  `safari:experimentalWebSocketUrl`.
+
 ## How it works (notes)
 
 - Launches Chrome with `--remote-debugging-port` + a dedicated `--user-data-dir` (since Chrome 136, remote
@@ -390,6 +465,9 @@ This is a tool intended for a developer to use on their own machine. Design poin
 - **Does not weaken Chrome's sandbox.** It does not use `--no-sandbox` or `--disable-web-security`.
 - **Android recording is localhost-only too.** `adb forward` binds only to the host's `127.0.0.1`, so even
   when recording a device, CDP never goes out to the LAN/outside.
+- **Safari recording is localhost-only too.** safaridriver's WebDriver server and the BiDi WebSocket bind to
+  `127.0.0.1`, and this tool connects only there. `safaridriver --enable` (needs sudo) is **a one-time manual
+  step by the user; this tool does not run it.**
 
 Things to watch out for in operation:
 
@@ -399,7 +477,7 @@ Things to watch out for in operation:
   and don't share it with others.
 - The output logs themselves may contain sensitive information (tokens, personal data, etc.). Check the
   contents before handing them to a cloud AI or before syncing the output folder.
-- Keep `config.json`'s `chrome_exe` / `adb_path` (all executables that get launched) and
+- Keep `config.json`'s `chrome_exe` / `adb_path` / `safaridriver_path` (all executables that get launched) and
   the URL set to trusted values. **Don't use a config received from / synced by someone else as-is** (the
   executable or output destination could be swapped, leading to arbitrary program execution or writes to
   arbitrary locations).
