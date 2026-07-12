@@ -12,6 +12,9 @@
 # Windows batch must stay CRLF (cmd.exe).
 *.bat         text eol=crlf
 
+# Shell launcher must stay LF (macOS / Linux).
+*.sh          text eol=lf
+
 # Treat these as binary if ever added (no line-ending munging).
 *.png binary
 *.jpg binary

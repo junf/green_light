@@ -14,7 +14,7 @@ being recorded.
 ### 📱 It can also record the Chrome on a USB-connected Android device
 
 This is not just a PC-only logger. A key feature is that it can **continuously record the Chrome console of a
-real USB-connected phone straight into a text file on the Windows side.** Instead of opening
+real USB-connected phone straight into a text file on the PC side.** Instead of opening
 `chrome://inspect` and manually copy-pasting the DevTools output, the mobile console (logs, exceptions,
 network errors, etc.) keeps flowing into the file across the device's page navigations and reloads. As a
 result, you can **hand a real device's debug logs to an AI as-is, without any copy-paste.** See the
@@ -45,17 +45,25 @@ to clear + filtering both help with "hand over the minimum only").
 
 ## Requirements
 
-- **OS: Windows only** (currently)
-  - Auto-detection of `chrome.exe`, console code-page setup, and clearing the screen (`cls`) all assume
-    Windows. macOS / Linux support is not implemented.
-- **Python 3.8 or later** (`python` or `py` must be on PATH)
+- **OS: Windows / macOS / Linux**
+  - Chrome auto-detection, console code-page setup, and screen clearing are all selected per OS.
+  - Launch with `glog.bat` on Windows, and `glog.sh` on macOS / Linux (or run
+    `python chrome_console_logger.py ...` directly).
+- **Python 3.8 or later**
+  - Windows: `python` or `py` must be on PATH.
+  - macOS / Linux: `python3` must be on PATH (the macOS system 3.9 works).
 - **Google Chrome** (auto-detected if installed in a common location; otherwise specify the full path in
-  `config.json`)
+  `config.json`'s `chrome_exe`)
+  - Default paths tried: `chrome.exe` under `Program Files` etc. on Windows,
+    `/Applications/Google Chrome.app` (and `~/Applications/...`) on macOS,
+    `google-chrome` / `chromium` etc. on PATH on Linux.
 - Python package: **`websocket-client`**
 - (Only if you use Android device recording) **adb (Android SDK Platform-Tools)**. See the
   "Recording the Chrome on an Android device" section for installation.
 
 ## Setup
+
+Windows (Command Prompt):
 
 ```bat
 :: 1) Install the dependency
@@ -65,29 +73,57 @@ pip install -r requirements.txt
 copy config.example.json config.json
 ```
 
+macOS / Linux (terminal):
+
+```sh
+# 1) Install the dependency (a venv is recommended)
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# 2) Prepare the config file (copy the sample and edit it)
+cp config.example.json config.json
+```
+
 `config.json` is **environment-specific and not tracked by Git** (it's in `.gitignore`). Always create it by
 copying `config.example.json` and editing it for your environment. At minimum, check `output_dir` (the log
 output destination).
 
 ## Usage
 
-1. Double-click `glog.bat` (or run `glog.bat` in a terminal).
-   If you launch it from a terminal you can **pass a URL or `--config` as arguments** (see "Launch examples").
+1. Launch it (**`glog.bat` on Windows**, **`./glog.sh` on macOS / Linux**).
+   On Windows you can also double-click it; from a terminal you can **pass a URL or `--config` as arguments**
+   (see "Launch examples"). On macOS / Linux, run `./glog.sh ...` or `python chrome_console_logger.py ...`
+   directly.
 2. A Chrome with a dedicated profile starts up.
 3. **Type in the address** of the page you want to record and open it.
 4. The console output of **every page** is recorded to the output file.
 5. To stop recording, press `Ctrl+C` in that terminal (Chrome stays open).
 
+> ℹ️ **The debug Chrome is intentionally left open after `Ctrl+C`** (you can keep working, and the next run
+> attaches to it). Note that **on macOS, closing all its windows does not quit the process**: it stays
+> resident and keeps holding the remote-debugging port (9222 by default), whereas on Windows closing the
+> last window quits Chrome. That is why the port can be busy with no window in sight. When you are done,
+> quit that debug Chrome with **Cmd+Q** — don't leave a debuggable Chrome resident.
+
 By default it records all pages without filtering (`filter_enabled: false`). No startup menu appears, and it
 doesn't open any specific URL.
 
-Launch examples (works by double-click, or from a terminal with arguments):
+Launch examples (on Windows, works by double-click or from a terminal with arguments):
 
 ```bat
 glog.bat
 glog.bat https://example.com/
 glog.bat --config myapp
 glog.bat --config myapp https://example.com/
+```
+
+On macOS / Linux, pass the same arguments to `glog.sh`:
+
+```sh
+./glog.sh
+./glog.sh https://example.com/
+./glog.sh --config myapp
+./glog.sh --config myapp https://example.com/
 ```
 
 - No arguments … record with the default `config.json` (same as double-clicking)
@@ -175,7 +211,7 @@ Enter a number (Enter = 3):
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `output_dir` | **Log output folder.** Relative paths are resolved against this script's folder | `logs` |
+| `output_dir` | **Log output folder.** Relative paths are resolved against this script's folder; a leading `~` expands to your home directory (macOS / Linux) | `logs` |
 | `log_filename` | Log file name | `console.log` |
 | `overwrite` | `true` = overwrite on each launch / `false` = append | `true` |
 | `port` | Remote debugging port | `9222` |
@@ -363,10 +399,10 @@ Things to watch out for in operation:
   and don't share it with others.
 - The output logs themselves may contain sensitive information (tokens, personal data, etc.). Check the
   contents before handing them to a cloud AI or before syncing the output folder.
-- Keep `config.json`'s `chrome_exe` / `adb_path` (both executables that get launched) and the URL set to
-  trusted values. **Don't use a config received from / synced by someone else as-is** (the executable or
-  output destination could be swapped, leading to arbitrary program execution or writes to arbitrary
-  locations).
+- Keep `config.json`'s `chrome_exe` / `adb_path` (all executables that get launched) and
+  the URL set to trusted values. **Don't use a config received from / synced by someone else as-is** (the
+  executable or output destination could be swapped, leading to arbitrary program execution or writes to
+  arbitrary locations).
 
 ## License
 

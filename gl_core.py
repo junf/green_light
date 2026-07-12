@@ -121,6 +121,19 @@ DEFAULTS = {
 }
 
 
+# Config values that name a file or directory. A leading "~" in them is expanded to
+# the home directory (macOS / Linux configs are commonly written that way; without
+# this, "~/logs" would be treated as a relative path and create a literal "~" folder).
+_PATH_KEYS = ("output_dir", "profile_dir", "chrome_exe", "adb_path")
+
+
+def _expand_user_paths(cfg: dict) -> None:
+    for k in _PATH_KEYS:
+        v = cfg.get(k)
+        if isinstance(v, str) and v.startswith("~"):
+            cfg[k] = os.path.expanduser(v)
+
+
 def load_config(path, explicit: bool = False) -> dict:
     cfg = dict(DEFAULTS)
     if os.path.exists(path):
@@ -138,6 +151,7 @@ def load_config(path, explicit: bool = False) -> dict:
     else:
         print(f"[warn] config.json not found (running with defaults): {path}")
         print("       To customize, copy config.example.json to config.json.")
+    _expand_user_paths(cfg)
     if not cfg.get("profile_dir"):
         cfg["profile_dir"] = os.path.join(SCRIPT_DIR, ".chrome-debug-profile")
     try:
