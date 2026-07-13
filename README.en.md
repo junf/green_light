@@ -58,6 +58,8 @@ to clear + filtering both help with "hand over the minimum only").
     `/Applications/Google Chrome.app` (and `~/Applications/...`) on macOS,
     `google-chrome` / `chromium` etc. on PATH on Linux.
 - Python package: **`websocket-client`**
+- (Only if you record an iPhone / iPad) **`pymobiledevice3`** (`pip install -r requirements-ios.txt`).
+  No root/sudo needed. See "Recording an iPhone / iPad's Safari" below.
 - (Only if you use Android device recording) **adb (Android SDK Platform-Tools)**. See the
   "Recording the Chrome on an Android device" section for installation.
 
@@ -217,9 +219,9 @@ Enter a number (Enter = 3):
 | `port` | Remote debugging port | `9222` |
 | `chrome_exe` | Path to the Chrome executable (auto-detect if empty) | empty (auto-detect) |
 | `profile_dir` | Profile location for the debug Chrome (if empty, `.chrome-debug-profile` inside this folder) | empty |
-| `source` | Recording target. `desktop` = launch and record this PC's Chrome / `android` = record a USB-connected device's Chrome (see below) / `safari` = record this Mac's Safari (see below; macOS-only) | `desktop` |
+| `source` | Recording target. `desktop` = launch and record this PC's Chrome / `android` = record a USB-connected device's Chrome (see below) / `safari` = record this Mac's Safari (see below; macOS-only) / `ios` = record a USB-connected iPhone/iPad's Safari (see below) | `desktop` |
 | `adb_path` | Path to adb for `source: android` (auto-detect from PATH and common SDK locations if empty) | empty |
-| `device_serial` | Target device for `source: android` (empty = the only device; for multiple devices, specify the serial from `adb devices`) | empty |
+| `device_serial` | Target device id: the adb serial for `source: android`, the device UDID for `source: ios` (empty = the only connected device) | empty |
 | `safaridriver_path` | Path to safaridriver for `source: safari` (auto-detect from PATH if empty; normally macOS built-in, so no need to set) | empty |
 | `start_url` | URL to open on launch (a command-line argument takes precedence) | empty |
 | `filter_enabled` | `false` = filtering off (record all pages) / `true` = narrow down with filters | `false` |
@@ -433,6 +435,61 @@ reproduce a bug and record its console*. You only get the log output of the page
 - WebDriver BiDi is currently experimental in Safari, so internally we request
   `safari:experimentalWebSocketUrl`.
 
+## Recording an iPhone / iPad's Safari (USB / pymobiledevice3)
+
+You can record the console of a USB-connected **iOS device's Safari** (`source: ios`). Like the Android source,
+**you hold the device and use it by hand while its console output keeps streaming into a text file on the PC.**
+Unlike the macOS Safari source there is **no restriction on interacting with it** (this attaches the Web
+Inspector, it does not automate the browser).
+
+**No root/sudo and no tunnel are needed.** The same code runs on a macOS or a Windows host (developed on macOS).
+
+### 1. Install the dependency
+
+```sh
+pip install -r requirements-ios.txt      # pymobiledevice3 (only for the ios source)
+```
+
+### 2. Prepare the device
+
+1. **Connect over USB**, unlock the device and tap **Trust** on "Trust This Computer?".
+2. **Settings > Apps > Safari > Advanced > "Web Inspector" ON**
+   (iOS 17 and earlier: Settings > Safari > Advanced > Web Inspector).
+3. ⚠️ **Turn OFF any Safari extension that wraps `console.*`.** For example the App Store app
+   **"Web Inspector"** injects a `console.js` into every page and wraps `console.*`, so every recorded line
+   gets the *extension's* location (`console.js:53`) instead of the page's own `file.js:12`.
+   Turn it off in Settings > Apps > Safari > Extensions. **Note that a page already open keeps the injected
+   script until you reload it.**
+4. **Open the page you want to record in Safari on the device** (and keep the device unlocked).
+
+### 3. Configure and launch
+
+Example `config.ios.json`:
+
+```json
+{
+  "output_dir": "logs-ios",
+  "source": "ios",
+  "port": 9223,
+  "device_serial": "",
+  "timestamp": true
+}
+```
+
+```sh
+./glog.sh --config ios
+```
+
+It attaches to the pages open in the device's Safari and records their console output and uncaught exceptions
+from then on. Just **use the device normally**. Stop with `Ctrl+C`.
+
+### iOS limitations (vs the Chrome version)
+
+- **`start_url` is ignored**: the tool does not open pages on the device; you open them yourself.
+- **Only pages currently open in the device's Safari** are recorded, and the device must stay unlocked.
+- **URL filtering works** (`url_filter` / presets).
+- Because it attaches per tab, re-attaching can take a few seconds right after a page reload.
+
 ## How it works (notes)
 
 - Launches Chrome with `--remote-debugging-port` + a dedicated `--user-data-dir` (since Chrome 136, remote
@@ -468,6 +525,9 @@ This is a tool intended for a developer to use on their own machine. Design poin
 - **Safari recording is localhost-only too.** safaridriver's WebDriver server and the BiDi WebSocket bind to
   `127.0.0.1`, and this tool connects only there. `safaridriver --enable` (needs sudo) is **a one-time manual
   step by the user; this tool does not run it.**
+- **iOS recording is localhost-only and unprivileged too.** The server that bridges the device's Web Inspector
+  to CDP binds `127.0.0.1` (never the LAN). It uses **no root/sudo and no tunnel**, and mounts no developer
+  disk image.
 
 Things to watch out for in operation:
 

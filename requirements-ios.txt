@@ -1,0 +1,2 @@
+# Only for the "ios" source (USB iPhone / iPad Safari). Not needed otherwise.
+pymobiledevice3>=9.35

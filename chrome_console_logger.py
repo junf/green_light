@@ -12,8 +12,11 @@ Sources (config "source"):
   - "desktop" : launch / attach to the Chrome on this PC          (gl_desktop.py)
   - "android" : a USB-connected Android device's Chrome via adb   (gl_android.py)
   - "safari"  : the macOS desktop Safari via WebDriver BiDi        (gl_safari.py)
-Everything after a CDP endpoint is reached is shared in gl_core.py. (Safari does
-not speak CDP, so gl_safari runs its own capture loop and reuses only out/config.)
+  - "ios"     : a USB-connected iPhone/iPad's Safari              (gl_ios.py)
+Everything after a CDP endpoint is reached is shared in gl_core.py. Safari and iOS
+are the exceptions: Safari does not speak CDP at all, and the iOS bridge exposes
+pages but no browser-level endpoint, so both run their own capture loop and reuse
+gl_core only for config, formatting and output.
 
 Usage:
   glog.bat
@@ -50,12 +53,16 @@ def main():
     start_url = core.safe_url(cli_url or preset_url or core.CFG["start_url"])
     log_path = core.resolve_log_path()
 
-    # Pick the source. Safari does not speak CDP, so it runs its own capture loop
-    # (gl_safari) rather than going through core.run's shared CDP path.
+    # Pick the source. Safari (no CDP at all) and iOS (CDP pages but no browser-level
+    # endpoint) each run their own capture loop instead of core.run's shared CDP path.
     src = (core.CFG.get("source") or "desktop").strip().lower()
     if src == "safari":
         from gl_safari import SafariSource
         SafariSource().run(start_url, active_filters, log_path)
+        return
+    if src == "ios":
+        from gl_ios import IOSSource
+        IOSSource().run(start_url, active_filters, log_path)
         return
 
     source = AndroidSource() if src == "android" else DesktopSource()

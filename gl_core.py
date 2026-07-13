@@ -108,10 +108,10 @@ DEFAULTS = {
     "port": 9222,
     "chrome_exe": "",           # empty = auto-detect chrome.exe from common locations
     "profile_dir": "",          # empty = <script folder>\.chrome-debug-profile
-    "source": "desktop",        # "desktop" (launch local Chrome) | "android" (USB device via adb forward) | "safari" (macOS Safari via WebDriver BiDi)
+    "source": "desktop",        # "desktop" (launch local Chrome) | "android" (USB device via adb forward) | "safari" (macOS Safari via WebDriver BiDi) | "ios" (USB iPhone/iPad Safari via pymobiledevice3)
     "adb_path": "",             # android: empty = find adb on PATH / common SDK locations
     "safaridriver_path": "",    # safari: empty = find safaridriver on PATH (macOS built-in)
-    "device_serial": "",        # android: empty = the only device; otherwise adb -s <serial>
+    "device_serial": "",        # android: adb serial / ios: device UDID. Empty = the only connected device
     "start_url": "",
     "url_filter": "",           # empty = all tabs; otherwise a substring to match in the URL
     "url_filter_presets": [],   # candidates ([{label, filter, url}, ...])
@@ -426,11 +426,17 @@ def handle_exception(p: dict):
     out(f"{prefix} {msg}".strip())
 
 
-def handle_log_entry(p: dict):
+def fmt_log_entry(p: dict) -> str:
+    """Format a Log.entryAdded payload into one output line. Shared with the iOS
+    source, whose bridge turns every WebKit console message into Log.entryAdded."""
     e = p.get("entry", {})
     url = e.get("url", "")
     prefix = f"{basename(url)}:{e.get('lineNumber',0)+1}" if url else ""
-    out(f"{prefix} {e.get('text','')}".strip())
+    return f"{prefix} {e.get('text','')}".strip()
+
+
+def handle_log_entry(p: dict):
+    out(fmt_log_entry(p))
 
 
 # ---- shared CDP endpoint helpers (localhost:<port>) -------------
