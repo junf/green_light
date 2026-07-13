@@ -56,8 +56,9 @@ import gl_core as core
 
 POLL_SEC = 2.0            # how often to look for newly opened / closed tabs
 ATTACH_TIMEOUT = 30       # how long to wait for the bridge to answer /json/list
-HEARTBEAT_SEC = 5.0       # ping the page's inspector session this often
-HEARTBEAT_DEAD_SEC = 15.0 # no answer for this long -> session is stale, re-attach
+HEARTBEAT_SEC = 5.0       # send each reader a device round-trip probe this often
+DEVICE_DEAD_SEC = 16.0    # no device reply on any live reader for this long -> device lost
+NO_PAGE_WARN_POLLS = 5    # polls with no page (and no live reader) before warning
 
 
 class _Bridge(threading.Thread):
@@ -79,8 +80,8 @@ class _Bridge(threading.Thread):
     def run(self):
         try:
             asyncio.run(self._serve())
-        except Exception as e:                      # surfaced by the caller
-            self.error = e
+        except BaseException as e:                  # incl. SystemExit: uvicorn calls sys.exit(1)
+            self.error = e                          # on a bind failure (port in use). Surfaced by caller.
 
     async def _serve(self):
         import uvicorn
@@ -104,17 +105,21 @@ class _Bridge(threading.Thread):
 class _PageReader(threading.Thread):
     """Streams one device page's console into `sink` (a Queue of output lines).
 
-    Exits when the page's inspector session goes stale so the poller re-attaches.
-    That is the normal case on a reload: WebKit destroys the page and builds a new
-    one, but the bridge reuses the page id and our WebSocket stays open -- it just
-    goes silent forever. A heartbeat is the only reliable way to notice.
-    """
+    Also tracks device liveness in `last_device_reply`. The bridge hides an unplug:
+    /json/list keeps returning the last-known page from a cache and the WebSocket
+    stays open, so the console just goes silent. The one reliable signal is that a
+    command which must round-trip to the device (Runtime.evaluate) stops getting a
+    reply. We send one every HEARTBEAT_SEC and stamp last_device_reply on any reply
+    or console event; the main loop watches that timestamp to notice a lost device.
+    A quiet-but-connected page still answers the probe, so it is not mistaken for a
+    disconnect. Exits on its own only when the WebSocket closes (a reload)."""
 
     def __init__(self, page, sink, stop_event):
         super().__init__(daemon=True)
         self.page = page
         self.sink = sink
         self.stop_event = stop_event
+        self.last_device_reply = time.time()   # read by the main thread (atomic float assign)
 
     def run(self):
         try:
@@ -124,6 +129,7 @@ class _PageReader(threading.Thread):
             return   # the tab vanished between the poll and the attach
         ws.settimeout(1.0)
         _id = [0]
+        probe_ids = set()
 
         def send(method):
             _id[0] += 1
@@ -138,7 +144,6 @@ class _PageReader(threading.Thread):
         except WebSocketException:
             return
 
-        last_reply = time.time()
         last_ping = 0.0
         try:
             while not self.stop_event.is_set():
@@ -146,11 +151,14 @@ class _PageReader(threading.Thread):
                 if now - last_ping >= HEARTBEAT_SEC:
                     last_ping = now
                     try:
-                        send("Runtime.getIsolateId")   # page-side no-op; the bridge answers
+                        # Must reach the device (unlike Runtime.getIsolateId, which the
+                        # bridge answers locally and would hide an unplug).
+                        _id[0] += 1
+                        probe_ids.add(_id[0])
+                        ws.send(json.dumps({"id": _id[0], "method": "Runtime.evaluate",
+                                            "params": {"expression": "0"}}))
                     except WebSocketException:
                         break
-                if now - last_reply > HEARTBEAT_DEAD_SEC:
-                    break                              # session is gone: let the poller re-attach
 
                 try:
                     raw = ws.recv()
@@ -159,10 +167,12 @@ class _PageReader(threading.Thread):
                 if not raw:
                     break
                 msg = json.loads(raw)
-                if "id" in msg:
-                    last_reply = time.time()
+                mid = msg.get("id")
+                if mid in probe_ids:
+                    probe_ids.discard(mid)
+                    self.last_device_reply = time.time()   # device answered -> alive
                 if msg.get("method") == "Log.entryAdded":
-                    last_reply = time.time()
+                    self.last_device_reply = time.time()
                     self.sink.put(core.fmt_log_entry(msg.get("params", {})))
         except WebSocketException:
             pass       # tab closed / navigated away: the poller will re-attach
@@ -199,13 +209,31 @@ class IOSSource:
             pages.append(p)
         return pages
 
+    def _bridge_dead_reason(self):
+        """Why the bridge is unusable, or None if it looks alive. The bridge runs in
+        a daemon thread; it can die (device unplugged/locked, usbmux gone) without
+        raising into the main loop, so we check it explicitly."""
+        if self.bridge is None:
+            return "bridge not started"
+        if self.bridge.error is not None:
+            e = self.bridge.error
+            if isinstance(e, SystemExit):
+                # uvicorn calls sys.exit(1) when it cannot bind the port.
+                return f"could not start the bridge on 127.0.0.1:{self.port} (port already in use?)"
+            return str(e)
+        if not self.bridge.is_alive():
+            return "bridge thread exited"
+        return None
+
     def _wait_bridge(self):
         deadline = time.time() + ATTACH_TIMEOUT
         while time.time() < deadline:
-            if self.bridge.error:
-                print(f"[error] Could not reach the device: {self.bridge.error}")
+            reason = self._bridge_dead_reason()
+            if reason:
+                print(f"[error] Could not reach the device: {reason}")
                 print("        Check: USB connected and trusted, device unlocked, and")
                 print("        Settings > Apps > Safari > Advanced > Web Inspector is ON.")
+                print("        (If the port is already in use, another logger may be running.)")
                 sys.exit(1)
             try:
                 urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/list", timeout=2).read()
@@ -213,7 +241,6 @@ class IOSSource:
             except Exception:
                 time.sleep(0.5)
         print("[error] The CDP bridge did not come up in time.")
-        self.cleanup()
         sys.exit(1)
 
     def run(self, start_url, active_filters, log_path):
@@ -222,31 +249,38 @@ class IOSSource:
         if start_url:
             print("[warn] start_url is ignored for the 'ios' source; open the page on the device yourself.")
 
-        print("[info] Starting the CDP bridge to the device (no sudo / no tunnel needed)...")
-        self.bridge = _Bridge(self.port, udid)
-        self.bridge.start()
-        self._wait_bridge()
-        print(f"[info] Device CDP bridge up on 127.0.0.1:{self.port}")
-
-        core.begin_log(log_path)
-
-        if active_filters:
-            print(f"[info] Active filters: {', '.join(active_filters)}")
-        else:
-            print("[info] Active filters: (all pages)")
-        print(f"[info] Logging started -> {log_path}  (Ctrl+C to stop)")
-
         sink: queue.Queue = queue.Queue()
         readers = {}          # page id -> _PageReader
         noted = set()         # URLs already reported as filtered out
+        misses = 0            # consecutive polls where the bridge returned nothing
 
         def matches(url):
             return (not active_filters) or any(f in url for f in active_filters)
 
         try:
+            print("[info] Starting the CDP bridge to the device (no sudo / no tunnel needed)...")
+            self.bridge = _Bridge(self.port, udid)
+            self.bridge.start()
+            self._wait_bridge()   # inside the try so Ctrl+C during the wait still hits finally
+            print(f"[info] Device CDP bridge up on 127.0.0.1:{self.port}")
+
+            core.begin_log(log_path)
+            if active_filters:
+                print(f"[info] Active filters: {', '.join(active_filters)}")
+            else:
+                print("[info] Active filters: (all pages)")
+            print(f"[info] Logging started -> {log_path}  (Ctrl+C to stop)")
+
+            attached_any = False
             while True:
+                reason = self._bridge_dead_reason()
+                if reason:
+                    print(f"\n[warn] Lost connection to the device ({reason}); recording stopped.")
+                    break
+
+                pages = self._pages()
                 # (re)attach to any page we are not reading yet
-                for p in self._pages():
+                for p in pages:
                     pid, url = p["id"], p["url"]
                     if pid in readers and readers[pid].is_alive():
                         continue
@@ -259,7 +293,25 @@ class IOSSource:
                     r = _PageReader(p, sink, self.stop_event)
                     r.start()
                     readers[pid] = r
+                    attached_any = True
                     print(f"[info] {'Re-attached' if again else 'Attached'}: {url}")
+
+                # Detect a lost device (unplugged / locked). The bridge hides it -- it
+                # keeps serving cached pages -- so we rely on the readers' liveness: a
+                # connected device answers each reader's probe, so if we have attached
+                # a page yet no live reader has heard from the device recently, it is gone.
+                alive = [r for r in readers.values() if r.is_alive()]
+                now = time.time()
+                if attached_any and alive and all(now - r.last_device_reply > DEVICE_DEAD_SEC for r in alive):
+                    print("\n[warn] The device stopped responding (unplugged or locked?); recording stopped.")
+                    break
+                # No pages at all for a while (device locked before any page, or all tabs closed).
+                if not pages and not alive:
+                    misses += 1
+                    if misses == NO_PAGE_WARN_POLLS:
+                        print("[warn] No Safari pages on the device. Is it unlocked with a page open?")
+                else:
+                    misses = 0
 
                 # drain whatever the page readers captured (single writer = this thread)
                 deadline = time.time() + POLL_SEC

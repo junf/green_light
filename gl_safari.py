@@ -102,6 +102,7 @@ class SafariSource:
                     sys.exit(1)
                 time.sleep(0.3)
         print("[error] safaridriver did not start listening in time.")
+        self.cleanup()   # don't leave the safaridriver process running on 127.0.0.1:<port>
         sys.exit(1)
 
     def _create_session(self):

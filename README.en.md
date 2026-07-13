@@ -2,9 +2,9 @@
 
 English | **[日本語](README.md)**
 
-**A tool that automatically records Chrome DevTools console output (logs, warnings, errors, exceptions)
-to a text file. It records from two targets — the Chrome on this PC, and the Chrome on a USB-connected
-Android device.**
+**A tool that automatically records browser console output (logs, warnings, errors, exceptions) to a text
+file. It records from four targets — the Chrome on this PC, the Chrome on a USB-connected Android device,
+this Mac's Safari, and the Safari on a USB-connected iPhone / iPad.**
 
 You don't need to have DevTools open: as long as the dedicated Chrome is running (or the target device is
 connected over USB), console output keeps streaming into the file. It works by attaching to the browser via
@@ -35,8 +35,8 @@ recorder for the "a human reproduces it, then has the AI read the result" workfl
   over automatically.
 - **Safe (small trust boundary)**: you never give the AI control of the browser — you only hand over a
   read-only artifact.
-- **Mobile too**: the Chrome console of a USB-connected Android device is recorded by the same mechanism,
-  so you can extract a real phone's debug logs without manual copy-paste.
+- **Mobile too**: the console of a USB-connected Android device's Chrome and of an iPhone / iPad's Safari
+  is recorded as well, so you can extract a real phone's debug logs without manual copy-paste.
 
 Conversely, having an AI iteratively debug by clicking → reloading → checking on its own is better suited to
 live control. This tool is console-centric (things like network response bodies are out of scope). Because
