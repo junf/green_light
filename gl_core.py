@@ -539,14 +539,26 @@ def run(source, start_url, active_filters, log_path):
 
     _id = [0]
 
-    def send(method, params=None, session_id=None):
+    def send(method, params=None, session_id=None) -> int:
         _id[0] += 1
         m = {"id": _id[0], "method": method, "params": params or {}}
         if session_id:
             m["sessionId"] = session_id
         ws.send(json.dumps(m))
+        return _id[0]
 
     session_url = {}   # sessionId -> current main-frame URL
+    target_sid = {}    # targetId -> sessionId (to apply Target.targetInfoChanged)
+
+    # A tab we open ourselves (Target.createTarget) attaches with an empty targetInfo.url,
+    # and its navigation may already have committed by the time Page.enable takes effect --
+    # so no Page.frameNavigated is replayed and the URL would never become known. Meanwhile
+    # Runtime.enable replays the page's whole startup console burst immediately. Filtering
+    # those events against an unknown URL would silently drop them, so instead we HOLD the
+    # events per session until the URL is known, then flush (record) or discard them.
+    pending = {}         # sessionId -> [(kind, params), ...] held until the URL is known
+    frametree_req = {}   # request id -> sessionId (in-flight Page.getFrameTree)
+    PENDING_MAX = 500    # cap: a session whose URL never resolves must not grow unbounded
 
     def is_active(sid):
         """Record everything when there are no active filters. Otherwise record
@@ -570,6 +582,37 @@ def run(source, start_url, active_filters, log_path):
         if u not in _excluded_noted:
             _excluded_noted.add(u)
             print(f"[info] Not recording (no filter match; check filter_enabled / presets): {u}")
+
+    _DISPATCH = {
+        "console": handle_console_api,
+        "exception": handle_exception,
+        "log": handle_log_entry,
+    }
+
+    def resolve_url(sid, u):
+        """Learn a session's main-frame URL, then flush whatever was held for it.
+        Called from three sources, whichever reports a real URL first:
+        the Page.getFrameTree reply, Page.frameNavigated, Target.targetInfoChanged."""
+        if not sid:
+            return
+        session_url[sid] = u
+        if not u or u.startswith("about:"):
+            return   # not a real URL yet -> keep holding; a later source will report it
+        note_exclusion(u)
+        held = pending.pop(sid, None)
+        if held and is_active(sid):
+            for kind, params in held:
+                _DISPATCH[kind](params)
+
+    def capture(kind, sid, params):
+        """Record an event, or hold it if this session's URL is not known yet."""
+        held = pending.get(sid)
+        if held is not None:
+            if len(held) < PENDING_MAX:
+                held.append((kind, params))
+            return
+        if is_active(sid):
+            _DISPATCH[kind](params)
 
     # Auto-attach to all current and future tabs (reliable; does not rely on targetCreated events)
     send("Target.setAutoAttach",
@@ -601,6 +644,12 @@ def run(source, start_url, active_filters, log_path):
             msg = json.loads(raw)
             method = msg.get("method")
             if not method:
+                # A command reply. The only one we track is Page.getFrameTree, which tells
+                # us the URL of a tab that attached before its URL was known.
+                waiting_sid = frametree_req.pop(msg.get("id"), None)
+                if waiting_sid:
+                    frame = ((msg.get("result") or {}).get("frameTree") or {}).get("frame") or {}
+                    resolve_url(waiting_sid, frame.get("url", ""))
                 continue
             p = msg.get("params", {})
             sid = msg.get("sessionId")
@@ -611,30 +660,44 @@ def run(source, start_url, active_filters, log_path):
                 if ti.get("type") == "page" and new_sid:
                     u = ti.get("url", "")
                     session_url[new_sid] = u
-                    note_exclusion(u)
-                    send("Runtime.enable", session_id=new_sid)
+                    target_sid[ti.get("targetId")] = new_sid
+                    send("Runtime.enable", session_id=new_sid)   # replays the buffered console
                     send("Log.enable", session_id=new_sid)
                     send("Page.enable", session_id=new_sid)
+                    if active_filters and (not u or u.startswith("about:")):
+                        # URL unknown (typically a tab we just opened): hold this session's
+                        # events and ask for the frame tree, since Page.enable will not
+                        # replay a frameNavigated that already happened.
+                        pending[new_sid] = []
+                        frametree_req[send("Page.getFrameTree", session_id=new_sid)] = new_sid
+                    else:
+                        note_exclusion(u)
 
             elif method == "Page.frameNavigated":
                 frame = p.get("frame", {})
                 if not frame.get("parentId") and sid:   # main frame only
-                    u = frame.get("url", "")
-                    session_url[sid] = u
-                    note_exclusion(u)
+                    resolve_url(sid, frame.get("url", ""))
+
+            elif method == "Target.targetInfoChanged":
+                ti = p.get("targetInfo", {})
+                changed_sid = target_sid.get(ti.get("targetId"))
+                if changed_sid and changed_sid in pending:
+                    resolve_url(changed_sid, ti.get("url", ""))
 
             elif method == "Target.detachedFromTarget":
-                session_url.pop(p.get("sessionId"), None)   # drop closed tab's URL (avoid slow dict growth)
+                gone = p.get("sessionId")
+                session_url.pop(gone, None)   # drop closed tab's state (avoid slow dict growth)
+                pending.pop(gone, None)
+                for tid, s in list(target_sid.items()):
+                    if s == gone:
+                        target_sid.pop(tid, None)
 
             elif method == "Runtime.consoleAPICalled":
-                if is_active(sid):
-                    handle_console_api(p)
+                capture("console", sid, p)
             elif method == "Runtime.exceptionThrown":
-                if is_active(sid):
-                    handle_exception(p)
+                capture("exception", sid, p)
             elif method == "Log.entryAdded":
-                if is_active(sid):
-                    handle_log_entry(p)
+                capture("log", sid, p)
 
     except KeyboardInterrupt:
         print("\n[info] Stopped.")
