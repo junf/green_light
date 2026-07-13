@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -117,6 +118,7 @@ DEFAULTS = {
     "url_filter_presets": [],   # candidates ([{label, filter, url}, ...])
     "filter_menu": False,       # (only when filter_enabled) True = pick one preset from a menu at startup / False = enable all preset filters at once
     "filter_enabled": False,    # False = filtering disabled (record all pages / recommended). True = filter by the settings above
+    "redact_patterns": [],      # opt-in: regexes replaced with *** in every output line (best effort; see README)
     "timestamp": False,         # True = prefix each line with [HH:MM:SS]
     "stack_for_trace": True,    # also print the stack trace for console.trace
 }
@@ -303,6 +305,7 @@ def out(line: str):
     The file is opened/closed (append) on every write, so no handle is held and
     the user can delete the log file while logging is running. If it was deleted,
     the file is recreated, the terminal is cleared, and a marker line is added."""
+    line = redact(line)
     if CFG["timestamp"]:
         line = time.strftime("[%H:%M:%S] ") + line
 
@@ -467,12 +470,42 @@ def page_tabs():
         return []
 
 
+# ---- redaction (opt-in; off unless the config lists patterns) ---
+_REDACTORS: list = []
+
+
+def compile_redactors():
+    """Compile CFG['redact_patterns'] once, at the start of a run.
+
+    BEST EFFORT ONLY. Regex redaction cannot catch every secret (custom token
+    shapes, ids buried in prose, ...), so it must not be treated as a guarantee:
+    still check a log before handing it to a cloud AI. It exists so that someone
+    who knows what their own app's secrets look like can strip them automatically.
+    """
+    global _REDACTORS
+    _REDACTORS = []
+    for pat in (CFG.get("redact_patterns") or []):
+        try:
+            _REDACTORS.append(re.compile(pat))
+        except re.error as e:
+            print(f"[warn] Ignoring invalid redact pattern {pat!r}: {e}")
+    if _REDACTORS:
+        print(f"[info] Redaction: {len(_REDACTORS)} pattern(s) active (best effort; still review the log)")
+
+
+def redact(line: str) -> str:
+    for rx in _REDACTORS:
+        line = rx.sub("***", line)
+    return line
+
+
 # ---- log-file lifecycle (shared by every capture path) ----------
 def begin_log(log_path):
     """Open the output file for logging: ensure output_dir exists, clear the file
     once when overwrite is set, arm out() (via _log_path), and write the start
     marker. Shared by the CDP run loop and non-CDP sources (e.g. Safari/BiDi)."""
     global _log_path
+    compile_redactors()
     os.makedirs(CFG["output_dir"], exist_ok=True)
     if CFG["overwrite"]:
         open(log_path, "w", encoding="utf-8").close()   # clear once at startup

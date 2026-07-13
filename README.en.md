@@ -228,6 +228,7 @@ Enter a number (Enter = 3):
 | `filter_menu` | (only when `filter_enabled: true`) `false` = no menu (all preset filters active at once; doesn't open a URL) / `true` = pick one filter at startup (and open its `url`) | `false` |
 | `url_filter` | Fallback narrowing string used when presets are empty (record only pages whose main-frame URL contains it) | empty |
 | `url_filter_presets` | Candidates for recording targets. `[{ "label": display name, "filter": narrowing string, "url": URL to open }, ...]`. `url` is opened when selected with `filter_menu: true` (optional) | e.g. Production / Local dev / All |
+| `redact_patterns` | **Optional secret masking.** A list of regexes; every match is replaced with `***` in the output. **Best effort, not a guarantee** (see below) | `[]` (off) |
 | `timestamp` | `true` prefixes each line with `[HH:MM:SS]` | `false` |
 | `stack_for_trace` | Also print the stack for `console.trace` | `true` |
 
@@ -490,6 +491,28 @@ from then on. Just **use the device normally**. Stop with `Ctrl+C`.
 - **URL filtering works** (`url_filter` / presets).
 - Because it attaches per tab, re-attaching can take a few seconds right after a page reload.
 
+## Masking secrets (optional / `redact_patterns`)
+
+Logs can contain **tokens, API keys and personal data** (a real device log did surface a Supabase `apikey=…`).
+Set `redact_patterns` to a list of regexes and every match is replaced with `***` in the output.
+
+```json
+"redact_patterns": [
+  "apikey=[A-Za-z0-9_\\-]+",
+  "eyJ[A-Za-z0-9_\\-]{10,}\\.[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+"
+]
+```
+
+```
+WebSocket connection to 'wss://…/websocket?***&vsn=2.0.0' failed
+```
+
+> ⚠️ **This is best effort, not a safety guarantee.** Regexes always miss something (custom token shapes, ids
+> buried in prose, personal data in free text). **Do not think "it is masked, so it is safe": keep checking the
+> log before handing it to a cloud AI or syncing the output folder.** The feature exists so that someone who
+> knows what their own app's secrets look like can strip them mechanically. It is off by default (`[]`), and
+> nothing changes unless you set it.
+
 ## How it works (notes)
 
 - Launches Chrome with `--remote-debugging-port` + a dedicated `--user-data-dir` (since Chrome 136, remote
@@ -536,7 +559,8 @@ Things to watch out for in operation:
 - `.chrome-debug-profile/` stores **login sessions (cookies/tokens).** Don't put it in a cloud sync folder
   and don't share it with others.
 - The output logs themselves may contain sensitive information (tokens, personal data, etc.). Check the
-  contents before handing them to a cloud AI or before syncing the output folder.
+  contents before handing them to a cloud AI or before syncing the output folder. `redact_patterns`
+  (optional) can strip known patterns, but it is **best effort and no substitute for looking.**
 - Keep `config.json`'s `chrome_exe` / `adb_path` / `safaridriver_path` (all executables that get launched) and
   the URL set to trusted values. **Don't use a config received from / synced by someone else as-is** (the
   executable or output destination could be swapped, leading to arbitrary program execution or writes to

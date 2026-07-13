@@ -214,6 +214,7 @@ Enter a number (Enter = 3):
 | `filter_menu` | （`filter_enabled: true` のときのみ）`false`=メニュー無し（全プリセットのフィルタを同時有効・URLは開かない） / `true`=起動時にフィルタを1つ選ぶ（その `url` を開く） | `false` |
 | `url_filter` | プリセットが空のときの絞り込み文字列（メインフレーム URL に含むページのみ記録） | 空 |
 | `url_filter_presets` | 記録対象の候補。`[{ "label": 表示名, "filter": 絞り込み文字列, "url": 開くURL }, ...]`。`url` は `filter_menu: true` で選択時に開く（任意） | 例: Production / Local dev / All |
+| `redact_patterns` | **機微情報のマスキング（任意）**。正規表現のリスト。一致部分を `***` に置換して記録する。**ベストエフォートであり保証ではない**（後述） | `[]`（無効） |
 | `timestamp` | `true` で各行頭に `[HH:MM:SS]` | `false` |
 | `stack_for_trace` | `console.trace` のスタックも出す | `true` |
 
@@ -472,6 +473,28 @@ pip install -r requirements-ios.txt      # pymobiledevice3（ios ソース専用
 - **URL フィルタは使える**（`url_filter` / プリセット）。
 - タブごとに接続する方式のため、ページのリロード直後は数秒アタッチが遅れることがある。
 
+## 機微情報のマスキング（任意 / `redact_patterns`）
+
+ログには**トークン・API キー・個人情報**が混じり得る（実際に、実機ログに Supabase の `apikey=…` が
+出た）。`redact_patterns` に正規表現のリストを書くと、一致部分を `***` に置換して記録する。
+
+```json
+"redact_patterns": [
+  "apikey=[A-Za-z0-9_\\-]+",
+  "eyJ[A-Za-z0-9_\\-]{10,}\\.[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+"
+]
+```
+
+```
+WebSocket connection to 'wss://…/websocket?***&vsn=2.0.0' failed
+```
+
+> ⚠️ **これはベストエフォートであり、安全の保証ではない。** 正規表現では必ず取りこぼす
+> （独自形式のトークン、文中に紛れた ID、日本語の個人情報など）。**「マスク済みだから安全」と考えず、
+> クラウド AI に渡す前・出力フォルダを同期する前に、これまでどおり中身を確認すること。**
+> 自分のアプリのトークン形式を知っている人が、それを機械的に落とすための機能である。
+> 既定は無効（`[]`）で、指定しない限り挙動は一切変わらない。
+
 ## 仕組み（メモ）
 
 - Chrome を `--remote-debugging-port` + 専用 `--user-data-dir` で起動する
@@ -515,7 +538,8 @@ pip install -r requirements-ios.txt      # pymobiledevice3（ios ソース専用
 - `.chrome-debug-profile/` には**ログインセッション（Cookie/トークン）**が保存されます。
   クラウド同期フォルダに置かない・他者と共有しないこと。
 - 出力ログ自体に機微情報（トークン・個人情報など）が混じる場合があります。クラウドの AI へ
-  渡す前・出力フォルダを同期する前に中身を確認してください。
+  渡す前・出力フォルダを同期する前に中身を確認してください。`redact_patterns`（任意）で既知の
+  パターンを `***` に落とせますが、**ベストエフォートであり確認の代わりにはなりません**。
 - `config.json` の `chrome_exe` / `adb_path` / `safaridriver_path`（いずれも起動する実行ファイル）と
   URL は信頼できる値に保つこと。**他者から受け取った／同期されてきた config をそのまま使わない**
   （実行ファイルや出力先が差し替えられ、任意プログラム実行・任意の場所への書き込みになり得るため）。

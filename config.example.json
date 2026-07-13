@@ -10,7 +10,6 @@
   "device_serial": "",
   "safaridriver_path": "",
   "start_url": "",
-
   "url_filter": "",
   "url_filter_presets": [
     {
@@ -23,11 +22,15 @@
       "filter": "localhost",
       "url": "http://localhost:3000/"
     },
-    { "label": "All pages (no filter)", "filter": "", "url": "" }
+    {
+      "label": "All pages (no filter)",
+      "filter": "",
+      "url": ""
+    }
   ],
   "filter_menu": false,
   "filter_enabled": false,
-
+  "redact_patterns": [],
   "timestamp": false,
   "stack_for_trace": true
 }
