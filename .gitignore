@@ -4,6 +4,9 @@ CLAUDE.md
 # Private design memos / plans
 plans/
 
+# Private idea / TODO memos captured by the /idea command
+idea/
+
 # Environment-specific config sets (copied from config.example.json; one per project)
 config.json
 config.*.json
