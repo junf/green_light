@@ -304,6 +304,15 @@ Once `adb version` shows a version, the first stage of preparation is done.
   yet allowed).
 - **Open the Chrome you want to record on the device.**
 
+> 💡 **If the device isn't found (`adb devices` is empty), try a different USB port first.** Front-panel ports
+> on a PC can be unreliable due to their wiring or power delivery. In an actual case here (Pixel 8a),
+> **on a front port Windows didn't recognize the device as a USB device at all** (it didn't even appear in
+> Device Manager), and **plugging it into a rear port (directly on the motherboard) made it show up
+> instantly.** In that state, toggling USB debugging off and on is pointless — try a **rear port first, then a
+> different cable** (one that supports **data transfer**, not a charge-only cable). Only if it still doesn't
+> appear after changing the port and the cable should you start suspecting the USB-debugging setting or the
+> device's USB mode.
+
 ### 3. Configuration (example of creating `config.android.json`)
 
 ```jsonc
