@@ -3,7 +3,7 @@
 **[English](README.en.md)** | 日本語
 
 **ブラウザのコンソール出力（ログ・警告・エラー・例外）を、テキストファイルへ自動記録するツール。
-記録対象は4つ — この PC の Chrome、USB 接続した Android 端末の Chrome、この Mac の Safari、
+記録対象は4つ — PC の Chrome、USB 接続した Android 端末の Chrome、Mac の Safari、
 USB 接続した iPhone / iPad の Safari。**
 
 DevTools を開いていなくても、専用の Chrome を立ち上げている間（または対象端末を USB で繋いでいる間）は、
@@ -37,7 +37,7 @@ AI に直接ブラウザを操作させる方式（MCP など）の代替では�
 
 ## 動作環境
 
-- **OS: Windows / macOS / Linux**
+- **OS: Windows / macOS**（**Linux は実装のみで未検証**。下の[対応表](#対応表ブラウザ--ロガー実行環境)参照）
   - Chrome の自動検出・コンソールのコードページ設定・画面クリアは OS ごとに出し分け済み。
   - 起動は Windows が `glog.bat`、macOS / Linux は `glog.sh`（または `python chrome_console_logger.py ...` を直接実行）。
 - **Python 3.8 以上**
@@ -52,7 +52,68 @@ AI に直接ブラウザを操作させる方式（MCP など）の代替では�
 - （Android 端末の記録を使う場合のみ）**adb（Android SDK Platform-Tools）**。
   インストール方法は「Android 端末の Chrome を記録する」節を参照
 - （iPhone / iPad の記録を使う場合のみ）**`pymobiledevice3`**（`pip install -r requirements-ios.txt`）。
-  root / sudo は不要。詳細は「iPhone / iPad の Safari を記録する」節を参照
+  root / sudo は不要。**Windows のみ追加要件が2つある**（Apple Mobile Device Support と
+  C コンパイラ）。詳細は「iPhone / iPad の Safari を記録する」節を参照
+
+## 対応表（ブラウザ × ロガー実行環境）
+
+「どのブラウザを、どの PC で記録できるか」の一覧。原則として**ロガーとブラウザは同じ PC**にあり、
+別マシンのブラウザには繋がらない（USB で繋いだ Android / iPhone だけが例外）。
+
+凡例: ✅ **サポート** ／ ⚠ **実装済み・未検証** ／ ✗ **非対応**（設計上できない）
+
+| 対象ブラウザ / デバイス | `source` | 🪟 Windows で記録 | 🍎 Mac で記録 |
+| --- | --- | :---: | :---: |
+| Chrome（Windows） | `desktop` | ✅ | ✗ ¹ |
+| Chrome（Mac） | `desktop` | ✗ ¹ | ✅ |
+| Chrome（Android 実機・USB） | `android` | ✅ | ✅ |
+| Chrome（iPhone 実機・USB） | — | ✗ ² | ✗ ² |
+| Safari（Mac） | `safari` | ✗ ³ | ✅（実験的） |
+| Safari（iPhone / iPad 実機・USB） | `ios` | ⚠ ⁴ | ✅ |
+
+**脚注**
+
+1. `desktop` は「**実行中の PC 上の** Chrome」を起動 / アタッチする方式。別マシンの Chrome には届かない（＝ロガーとブラウザは同じ PC）。
+2. iPhone の Chrome は iOS 上で WebKit（WKWebView）で動き、Web インスペクタの対象外。green_light の iOS 記録は iPhone / iPad の **Safari のみ**対応。
+3. `safaridriver` は macOS 同梱ツールで **macOS 専用**。Windows / Linux には存在しない。
+4. 実装は OS 共通（純 Python）だが、**実機での記録を検証したのは macOS のみ**。Windows は
+   セットアップに追加要件が2つある（**Apple Mobile Device Support** と **C コンパイラ**。
+   「[iPhone / iPad の Safari を記録する](#iphone--ipad-の-safari-を記録するusb--pymobiledevice3)」節を参照）。
+   Windows でも **usbmux との通信までは確認済み**（端末を繋いでの記録が未検証）。
+
+> ⚠ **Linux をロガーにする場合は「実装済み・未検証」**（表の ⚠ 相当）。対象の組み合わせは Windows 列と同じ
+> （`desktop` / `android` / `ios` が対象で `safari` は不可）で、起動は `glog.sh`。ただし **OS 分岐を
+> 実装してあるだけで、Linux 実機での動作確認はしていない**。
+
+同じ内容を図にしたもの:
+
+```mermaid
+flowchart LR
+  %% 左＝対象ブラウザ／右＝ロガー実行環境。エッジのラベル＝使う source。
+  %% エッジが無い（または点線）組み合わせ＝未検証か非対応。
+  classDef browser fill:#e8f0fe,stroke:#4285f4,color:#111827;
+  classDef host fill:#fff4e5,stroke:#f5a623,color:#111827,font-weight:bold;
+  classDef na fill:#eeeeee,stroke:#9e9e9e,color:#555,stroke-dasharray:4 3;
+
+  CW["Chrome<br/>Windows"]:::browser
+  CM["Chrome<br/>Mac"]:::browser
+  CA["Chrome<br/>Android（USB）"]:::browser
+  CI["Chrome<br/>iPhone（USB）"]:::browser
+  SM["Safari<br/>Mac"]:::browser
+  SI["Safari<br/>iPhone（USB）"]:::browser
+
+  HW["🪟 ロガー = Windows"]:::host
+  HM["🍎 ロガー = Mac"]:::host
+
+  CW -->|"desktop ✅"| HW
+  CM -->|"desktop ✅"| HM
+  CA -->|"android ✅"| HW
+  CA -->|"android ✅"| HM
+  SM -->|"safari ✅（実験的）"| HM
+  SI -->|"ios ✅（検証済）"| HM
+  SI -.->|"ios ⚠（未検証）"| HW
+  CI -.->|"✗ 非対応"| NA["記録不可<br/>iPhone の Chrome は<br/>Web インスペクタ対象外"]:::na
+```
 
 ## セットアップ
 
@@ -206,7 +267,7 @@ Enter a number (Enter = 3):
 | `port` | リモートデバッグポート | `9222` |
 | `chrome_exe` | Chrome の実行ファイルパス（空なら自動検出） | 空（自動検出） |
 | `profile_dir` | デバッグ用 Chrome のプロファイル保存先（空ならこのフォルダ内 `.chrome-debug-profile`） | 空 |
-| `source` | 記録対象。`desktop`=この PC の Chrome を起動して記録 / `android`=USB 接続端末の Chrome を記録（後述） / `safari`=この Mac の Safari を記録（後述・macOS 専用） / `ios`=USB 接続した iPhone・iPad の Safari を記録（後述） | `desktop` |
+| `source` | 記録対象。`desktop`=ロガーを動かしている PC の Chrome を起動して記録（Windows / Mac / Linux） / `android`=USB 接続端末の Chrome を記録（後述） / `safari`=Mac の Safari を記録（後述・macOS 専用） / `ios`=USB 接続した iPhone・iPad の Safari を記録（後述） | `desktop` |
 | `adb_path` | `source: android` 時の adb のパス（空なら PATH と一般的な SDK の場所から自動検出） | 空 |
 | `device_serial` | 対象端末の識別子。`source: android` は adb の serial、`source: ios` は端末の UDID（空なら唯一接続されている端末） | 空 |
 | `safaridriver_path` | `source: safari` 時の safaridriver のパス（空なら PATH から自動検出。通常 macOS 同梱で指定不要） | 空 |
@@ -267,17 +328,24 @@ Chrome コンソールを PC 版と同じ仕組みでファイルに連続記録
 Android の記録には **adb**（Android Debug Bridge）が必要。adb は Android SDK の
 **Platform-Tools** に含まれる。
 
-- **まず入っているか確認**: PowerShell かコマンドプロンプトで `adb version`。
-  バージョンが表示されれば導入済み（Android Studio・Flutter・React Native などの
+- **まず入っているか確認**: ターミナル（Windows は PowerShell / コマンドプロンプト）で
+  `adb version`。バージョンが表示されれば導入済み（Android Studio・Flutter・React Native などの
   モバイル開発環境を入れていれば、たいてい既に入っている）。
 - **入っていなければインストール**（いずれか）:
-  - 公式の「**SDK Platform-Tools**」を Google からダウンロードして展開し、`adb.exe`
-    のあるフォルダを **PATH に追加**する（developer.android.com の Platform-Tools 配布物。
+  - 公式の「**SDK Platform-Tools**」を Google からダウンロードして展開し、`adb` のあるフォルダを
+    **PATH に追加**する（developer.android.com の Platform-Tools 配布物。
     Android Studio 全体を入れなくても、この zip 単体で使える）。
-  - パッケージマネージャでも可（例: `scoop install adb` / `choco install adb`）。
-  - Android Studio を入れる場合は通常 `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`。
-- **PATH に通さない場合**は、Android 用 config の `adb_path` に `adb.exe` のフルパスを
-  指定すればよい（空なら PATH と一般的な SDK の場所から自動検出）。
+  - パッケージマネージャでも可:
+    - Windows: `scoop install adb` / `choco install adb`
+    - macOS: `brew install --cask android-platform-tools`
+    - Linux: `sudo apt install adb`（Debian / Ubuntu 系）など
+  - Android Studio を入れた場合の既定の場所:
+    - Windows: `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`
+    - macOS: `~/Library/Android/sdk/platform-tools/adb`
+    - Linux: `~/Android/Sdk/platform-tools/adb`
+- **PATH に通さない場合**は、Android 用 config の `adb_path` に adb のフルパスを指定すればよい。
+  - `adb_path` が空のときの自動検出は **PATH →（Windows のみ）一般的な SDK の場所**の順。
+    **macOS / Linux では PATH しか見ない**ため、PATH に無ければ `adb_path` を指定すること。
 
 `adb version` でバージョンが出れば準備の第一段階は完了。
 
@@ -329,7 +397,11 @@ Android の記録には **adb**（Android Debug Bridge）が必要。adb は And
 ### 4. 実行
 
 ```bat
-glog.bat --config android
+glog.bat --config android      :: Windows
+```
+
+```sh
+./glog.sh --config android     # macOS / Linux
 ```
 
 → adb で端末の DevTools を `localhost:<port>` に転送し、Android Chrome に
@@ -360,7 +432,7 @@ glog.bat --config android
 > 公式ドキュメントに記載が無く、Safari のバージョン更新で名称・挙動が変わる／使えなくなる可能性が
 > ある。うまく繋がらない場合はまず Safari のバージョンと「リモートオートメーション」設定を確認すること。
 
-この Mac の **Safari** のコンソールも記録できる（`source: safari`）。Safari は CDP を
+Mac の **Safari** のコンソールも記録できる（`source: safari`）。Safari は CDP を
 話さないため、Chrome 系とは別経路（macOS 同梱の `safaridriver` + **WebDriver BiDi**）で
 コンソール／未捕捉例外を受け取り、同じテキストファイルに追記する。
 
@@ -434,13 +506,56 @@ USB 接続した **iOS 実機の Safari** のコンソールも記録できる�
 **端末を手に持って操作しながら、そのコンソール出力が PC 側のテキストファイルに流れ続ける**。
 Mac の Safari と違い**手動操作の制約は無い**（自動化ではなく Web Inspector に接続するため）。
 
-**root / sudo も tunnel も不要**。macOS / Windows どちらのホストでも同じコードで動く（開発は macOS で検証）。
+**root / sudo も tunnel も不要**。実装は macOS / Windows / Linux で同じコードだが、
+**セットアップの手間は OS で大きく違う**（macOS は pip だけ、Windows は追加で2つ要る）。
+なお**実機での記録を検証したのは macOS のみ**で、Windows は未検証（[対応表](#対応表ブラウザ--ロガー実行環境)の脚注4）。
 
 ### 1. 依存を入れる
+
+**macOS** — pip だけでよい（usbmux が OS に内蔵されているため）:
 
 ```sh
 pip install -r requirements-ios.txt      # pymobiledevice3（ios ソース専用。他の用途では不要）
 ```
+
+**Windows** — pip の前に、次の2つが要る:
+
+1. **Apple Mobile Device Support（usbmux）** … Windows には iOS 端末と話す仕組みが無いため、
+   Apple 製の **usbmux**（`AppleMobileDeviceProcess.exe`、`127.0.0.1:27015` で待ち受け）が必要。
+   **iTunes**（Microsoft Store 版 / Apple 配布版）または **Apple Devices** アプリを入れると同時に入る。
+   iTunes を使う必要はなく、入れておくだけでよい。
+2. **C++ コンパイラ**（Build Tools for Visual Studio の「C++ によるデスクトップ開発」）
+   … `pymobiledevice3` の依存 `pyimg4` が **`lzfse`** を要求し、これに**ホイールが1つも無い**ため
+   ソースからのビルドが要る。これは Windows / Linux だけの問題で、macOS は `lzfse` の代わりに
+   `apple-compress` を使うため踏まない（`pyimg4` の依存が `lzfse>=0.4.2; sys_platform != 'darwin'` のため）。
+
+```bat
+pip install -r requirements-ios.txt
+```
+
+導入できたか（**端末を繋ぐ前に**）確認する:
+
+```bat
+python -c "import asyncio; from pymobiledevice3.usbmux import list_devices; print(asyncio.run(list_devices()))"
+```
+
+`[]` と表示されれば OK（＝usbmux と会話できている。端末未接続なので空リスト）。
+ここでエラーになる場合は上の 1.（Apple Mobile Device Support）が入っていない。
+
+**Linux** は未検証（[対応表](#対応表ブラウザ--ロガー実行環境)の Linux 注記）。`lzfse` のビルドが要る点は
+Windows と同じで、加えて usbmux デーモン（`usbmuxd`）が要る見込み。
+
+> 💡 **`lzfse` のビルドが「Unable to find a compatible Visual Studio installation」で失敗するとき。**
+> Visual Studio を入れてあるのに出ることがある。setuptools は**最新の VS** を選ぶが、その VS に
+> `VC\Auxiliary\Build\vcvarsall.bat` が無いと詰まる（実測: VS 2022 Community に同ファイルが欠けており、
+> 併存する Build Tools 2019 には揃っていた）。対処は、**vcvars が揃っている方の環境を有効化してから**
+> `DISTUTILS_USE_SDK=1` を立てて（＝setuptools に VS を再探索させず今の環境を使わせる）ビルドする:
+>
+> ```bat
+> call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+> set DISTUTILS_USE_SDK=1
+> pip install -r requirements-ios.txt
+> ```
 
 ### 2. 端末側の準備
 
@@ -469,7 +584,11 @@ pip install -r requirements-ios.txt      # pymobiledevice3（ios ソース専用
 ```
 
 ```sh
-./glog.sh --config ios
+./glog.sh --config ios      # macOS / Linux
+```
+
+```bat
+glog.bat --config ios       :: Windows
 ```
 
 端末の Safari で開いているページに自動でアタッチし、以後そのページのコンソール出力・未捕捉例外を

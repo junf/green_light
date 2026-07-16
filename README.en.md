@@ -3,8 +3,8 @@
 English | **[日本語](README.md)**
 
 **A tool that automatically records browser console output (logs, warnings, errors, exceptions) to a text
-file. It records from four targets — the Chrome on this PC, the Chrome on a USB-connected Android device,
-this Mac's Safari, and the Safari on a USB-connected iPhone / iPad.**
+file. It records from four targets — the Chrome on your PC, the Chrome on a USB-connected Android device,
+the Safari on a Mac, and the Safari on a USB-connected iPhone / iPad.**
 
 You don't need to have DevTools open: as long as the dedicated Chrome is running (or the target device is
 connected over USB), console output keeps streaming into the file. It works by attaching to the browser via
@@ -45,7 +45,8 @@ to clear + filtering both help with "hand over the minimum only").
 
 ## Requirements
 
-- **OS: Windows / macOS / Linux**
+- **OS: Windows / macOS** (**Linux is implemented but unverified** — see the
+  [support matrix](#support-matrix-browser--logger-host) below)
   - Chrome auto-detection, console code-page setup, and screen clearing are all selected per OS.
   - Launch with `glog.bat` on Windows, and `glog.sh` on macOS / Linux (or run
     `python chrome_console_logger.py ...` directly).
@@ -59,9 +60,72 @@ to clear + filtering both help with "hand over the minimum only").
     `google-chrome` / `chromium` etc. on PATH on Linux.
 - Python package: **`websocket-client`**
 - (Only if you record an iPhone / iPad) **`pymobiledevice3`** (`pip install -r requirements-ios.txt`).
-  No root/sudo needed. See "Recording an iPhone / iPad's Safari" below.
+  No root/sudo needed. **Windows needs two extra things** (Apple Mobile Device Support and a C
+  compiler). See "Recording an iPhone / iPad's Safari" below.
 - (Only if you use Android device recording) **adb (Android SDK Platform-Tools)**. See the
   "Recording the Chrome on an Android device" section for installation.
+
+## Support matrix (browser × logger host)
+
+Which browser you can record from which PC. As a rule the **logger and the browser live on the same
+PC**; it cannot reach a browser on another machine (a USB-connected Android / iPhone is the exception).
+
+Legend: ✅ **supported** / ⚠ **implemented but unverified** / ✗ **not supported** (by design)
+
+| Target browser / device | `source` | 🪟 Record on Windows | 🍎 Record on Mac |
+| --- | --- | :---: | :---: |
+| Chrome (Windows) | `desktop` | ✅ | ✗ ¹ |
+| Chrome (Mac) | `desktop` | ✗ ¹ | ✅ |
+| Chrome (Android device, USB) | `android` | ✅ | ✅ |
+| Chrome (iPhone, USB) | — | ✗ ² | ✗ ² |
+| Safari (Mac) | `safari` | ✗ ³ | ✅ (experimental) |
+| Safari (iPhone / iPad, USB) | `ios` | ⚠ ⁴ | ✅ |
+
+**Footnotes**
+
+1. `desktop` launches / attaches to the Chrome **on the PC it runs on**. It cannot reach a Chrome on another machine (i.e. the logger and the browser are the same PC).
+2. Chrome on iPhone runs on WebKit (WKWebView) on iOS and is not a Web Inspector target. green_light's iOS recording supports **Safari only** on iPhone / iPad.
+3. `safaridriver` ships with macOS and is **macOS-only**. It does not exist on Windows / Linux.
+4. The implementation is the same pure-Python code on every OS, but **recording from a real device has
+   only been verified on macOS**. Windows setup needs two extra things (**Apple Mobile Device Support**
+   and a **C compiler** — see
+   "[Recording an iPhone / iPad's Safari](#recording-an-iphone--ipads-safari-usb--pymobiledevice3)").
+   On Windows, **talking to usbmux is confirmed working**; recording with a device attached is untested.
+
+> ⚠ Using **Linux** as the logger host is **implemented but unverified** (the ⚠ of the legend). The
+> combinations are the same as the Windows column (`desktop` / `android` / `ios` apply, `safari` does not)
+> and you launch it with `glog.sh` — but **only the per-OS branching is implemented; it has never been
+> exercised on a real Linux machine**.
+
+The same thing as a diagram:
+
+```mermaid
+flowchart LR
+  %% Left = target browser / right = logger host. Edge label = the source to use.
+  %% A missing (or dotted) edge = unverified or not supported.
+  classDef browser fill:#e8f0fe,stroke:#4285f4,color:#111827;
+  classDef host fill:#fff4e5,stroke:#f5a623,color:#111827,font-weight:bold;
+  classDef na fill:#eeeeee,stroke:#9e9e9e,color:#555,stroke-dasharray:4 3;
+
+  CW["Chrome<br/>Windows"]:::browser
+  CM["Chrome<br/>Mac"]:::browser
+  CA["Chrome<br/>Android (USB)"]:::browser
+  CI["Chrome<br/>iPhone (USB)"]:::browser
+  SM["Safari<br/>Mac"]:::browser
+  SI["Safari<br/>iPhone (USB)"]:::browser
+
+  HW["🪟 Logger = Windows"]:::host
+  HM["🍎 Logger = Mac"]:::host
+
+  CW -->|"desktop ✅"| HW
+  CM -->|"desktop ✅"| HM
+  CA -->|"android ✅"| HW
+  CA -->|"android ✅"| HM
+  SM -->|"safari ✅ (experimental)"| HM
+  SI -->|"ios ✅ (verified)"| HM
+  SI -.->|"ios ⚠ (unverified)"| HW
+  CI -.->|"✗ not supported"| NA["cannot record<br/>Chrome on iPhone is not<br/>a Web Inspector target"]:::na
+```
 
 ## Setup
 
@@ -219,7 +283,7 @@ Enter a number (Enter = 3):
 | `port` | Remote debugging port | `9222` |
 | `chrome_exe` | Path to the Chrome executable (auto-detect if empty) | empty (auto-detect) |
 | `profile_dir` | Profile location for the debug Chrome (if empty, `.chrome-debug-profile` inside this folder) | empty |
-| `source` | Recording target. `desktop` = launch and record this PC's Chrome / `android` = record a USB-connected device's Chrome (see below) / `safari` = record this Mac's Safari (see below; macOS-only) / `ios` = record a USB-connected iPhone/iPad's Safari (see below) | `desktop` |
+| `source` | Recording target. `desktop` = launch and record the Chrome on the PC running the logger (Windows / Mac / Linux) / `android` = record a USB-connected device's Chrome (see below) / `safari` = record a Mac's Safari (see below; macOS-only) / `ios` = record a USB-connected iPhone/iPad's Safari (see below) | `desktop` |
 | `adb_path` | Path to adb for `source: android` (auto-detect from PATH and common SDK locations if empty) | empty |
 | `device_serial` | Target device id: the adb serial for `source: android`, the device UDID for `source: ios` (empty = the only connected device) | empty |
 | `safaridriver_path` | Path to safaridriver for `source: safari` (auto-detect from PATH if empty; normally macOS built-in, so no need to set) | empty |
@@ -283,17 +347,24 @@ just hand the output file to an AI — i.e. **you extract a real phone's debug l
 Android recording requires **adb** (Android Debug Bridge). adb is included in the Android SDK's
 **Platform-Tools**.
 
-- **First, check whether it's installed**: run `adb version` in PowerShell or Command Prompt. If a version is
-  shown, it's already installed (if you've set up a mobile dev environment such as Android Studio, Flutter, or
-  React Native, you usually already have it).
+- **First, check whether it's installed**: run `adb version` in a terminal (PowerShell or Command Prompt on
+  Windows). If a version is shown, it's already installed (if you've set up a mobile dev environment such as
+  Android Studio, Flutter, or React Native, you usually already have it).
 - **If not installed** (any of the following):
   - Download the official "**SDK Platform-Tools**" from Google, extract it, and **add the folder containing
-    `adb.exe` to PATH** (the Platform-Tools package on developer.android.com; you can use this zip alone
+    `adb` to PATH** (the Platform-Tools package on developer.android.com; you can use this zip alone
     without installing all of Android Studio).
-  - A package manager also works (e.g. `scoop install adb` / `choco install adb`).
-  - If you install Android Studio, it's usually at `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`.
-- **If you don't add it to PATH**, specify the full path to `adb.exe` in the Android config's `adb_path`
-  (empty = auto-detect from PATH and common SDK locations).
+  - A package manager also works:
+    - Windows: `scoop install adb` / `choco install adb`
+    - macOS: `brew install --cask android-platform-tools`
+    - Linux: `sudo apt install adb` (Debian / Ubuntu), etc.
+  - Default locations if you install Android Studio:
+    - Windows: `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`
+    - macOS: `~/Library/Android/sdk/platform-tools/adb`
+    - Linux: `~/Android/Sdk/platform-tools/adb`
+- **If you don't add it to PATH**, specify the full path to adb in the Android config's `adb_path`.
+  - When `adb_path` is empty, auto-detection tries **PATH → (Windows only) common SDK locations**.
+    **On macOS / Linux only PATH is searched**, so set `adb_path` if adb is not on PATH.
 
 Once `adb version` shows a version, the first stage of preparation is done.
 
@@ -347,7 +418,11 @@ Once `adb version` shows a version, the first stage of preparation is done.
 ### 4. Run
 
 ```bat
-glog.bat --config android
+glog.bat --config android      :: Windows
+```
+
+```sh
+./glog.sh --config android     # macOS / Linux
 ```
 
 → It forwards the device's DevTools to `localhost:<port>` via adb, attaches to the Android Chrome, and starts
@@ -371,7 +446,7 @@ recording. Stop with `Ctrl+C` (the forward is also removed automatically on exit
 > really a device (Android Chrome).** This prevents the accident of **mistakenly connecting to the PC's
 > Chrome** when another Chrome is using the same port.
 
-## Recording this Mac's Safari (macOS / WebDriver BiDi) [Experimental]
+## Recording a Mac's Safari (macOS / WebDriver BiDi) [Experimental]
 
 > ⚠️ **This feature is experimental.** Safari's WebDriver BiDi is, as of this writing, **experimental**: we
 > internally request the undocumented capability `safari:experimentalWebSocketUrl` (without it, Safari does
@@ -379,7 +454,7 @@ recording. Stop with `Ctrl+C` (the forward is also removed automatically on exit
 > official docs and may be renamed / changed / removed by a Safari update. If it fails to connect, first check
 > your Safari version and the "Allow Remote Automation" setting.
 
-You can also record the console of this Mac's **Safari** (`source: safari`). Safari does not speak CDP, so it
+You can also record the console of a Mac's **Safari** (`source: safari`). Safari does not speak CDP, so it
 uses a separate path from the Chrome-family sources (macOS's built-in `safaridriver` + **WebDriver BiDi**) to
 receive console / uncaught-exception entries and append them to the same text file.
 
@@ -452,13 +527,59 @@ You can record the console of a USB-connected **iOS device's Safari** (`source: 
 Unlike the macOS Safari source there is **no restriction on interacting with it** (this attaches the Web
 Inspector, it does not automate the browser).
 
-**No root/sudo and no tunnel are needed.** The same code runs on a macOS or a Windows host (developed on macOS).
+**No root/sudo and no tunnel are needed.** The same code runs on macOS / Windows / Linux, but **the
+setup effort differs a lot per OS** (macOS needs only pip; Windows needs two extra things).
+Note that **recording from a real device has only been verified on macOS**; Windows is untested
+(see footnote 4 of the [support matrix](#support-matrix-browser--logger-host)).
 
 ### 1. Install the dependency
+
+**macOS** — pip is all you need (usbmux is built into the OS):
 
 ```sh
 pip install -r requirements-ios.txt      # pymobiledevice3 (only for the ios source)
 ```
+
+**Windows** — two things are required before pip:
+
+1. **Apple Mobile Device Support (usbmux)** … Windows has no built-in way to talk to an iOS device, so
+   Apple's **usbmux** (`AppleMobileDeviceProcess.exe`, listening on `127.0.0.1:27015`) is required.
+   Installing **iTunes** (Microsoft Store or Apple's own build) or the **Apple Devices** app brings it
+   along. You never have to use iTunes — it just has to be installed.
+2. **A C++ compiler** (Build Tools for Visual Studio, "Desktop development with C++") … `pymobiledevice3`
+   depends on `pyimg4`, which requires **`lzfse`**, and **no wheel exists for it at all**, so it must be
+   built from source. This only affects Windows / Linux: macOS uses `apple-compress` instead of `lzfse`
+   and never hits it (`pyimg4` declares `lzfse>=0.4.2; sys_platform != 'darwin'`).
+
+```bat
+pip install -r requirements-ios.txt
+```
+
+Check the install **before attaching a device**:
+
+```bat
+python -c "import asyncio; from pymobiledevice3.usbmux import list_devices; print(asyncio.run(list_devices()))"
+```
+
+Printing `[]` means it works (it talked to usbmux; the list is empty because no device is attached).
+If this errors out, item 1 (Apple Mobile Device Support) is missing.
+
+**Linux** is unverified (see the Linux note under the [support matrix](#support-matrix-browser--logger-host)).
+It needs the `lzfse` build just like Windows, and on top of that a usbmux daemon (`usbmuxd`) is expected to
+be required.
+
+> 💡 **If the `lzfse` build fails with "Unable to find a compatible Visual Studio installation".**
+> This can happen even with Visual Studio installed. setuptools picks the **newest** VS, and gets stuck
+> if that one has no `VC\Auxiliary\Build\vcvarsall.bat` (observed: a VS 2022 Community install was
+> missing that file while a side-by-side Build Tools 2019 had the full set). The fix is to **activate
+> the environment that does have vcvars**, then set `DISTUTILS_USE_SDK=1` (which tells setuptools to
+> use the current environment instead of re-detecting VS):
+>
+> ```bat
+> call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+> set DISTUTILS_USE_SDK=1
+> pip install -r requirements-ios.txt
+> ```
 
 ### 2. Prepare the device
 
@@ -487,7 +608,11 @@ Example `config.ios.json`:
 ```
 
 ```sh
-./glog.sh --config ios
+./glog.sh --config ios      # macOS / Linux
+```
+
+```bat
+glog.bat --config ios       :: Windows
 ```
 
 It attaches to the pages open in the device's Safari and records their console output and uncaught exceptions
