@@ -72,32 +72,31 @@ PC**; it cannot reach a browser on another machine (a USB-connected Android / iP
 
 Legend: ✅ **supported** / ⚠ **implemented but unverified** / ✗ **not supported** (by design)
 
-| Target browser / device | `source` | 🪟 Record on Windows | 🍎 Record on Mac |
-| --- | --- | :---: | :---: |
-| Chrome (Windows) | `desktop` | ✅ | ✗ ¹ |
-| Chrome (Mac) | `desktop` | ✗ ¹ | ✅ |
-| Chrome (Android device, USB) | `android` | ✅ | ✅ |
-| Chrome (iPhone, USB) | — | ✗ ² | ✗ ² |
-| Safari (Mac) | `safari` | ✗ ³ | ✅ (experimental) |
-| Safari (iPhone / iPad, USB) | `ios` | ⚠ ⁴ | ✅ |
+| Recording target (`source`) | 🪟 Record on Windows | 🍎 Record on Mac |
+| --- | :---: | :---: |
+| Chrome — the same PC as the logger (`desktop`) ¹ | ✅ | ✅ |
+| Chrome — Android device over USB (`android`) | ✅ | ✅ |
+| Safari — the Mac itself (`safari`) | ✗ ² | ✅ (experimental) |
+| Safari — iPhone / iPad over USB (`ios`) | ⚠ ³ | ✅ |
+| Chrome — iPhone over USB | ✗ ⁴ | ✗ ⁴ |
 
 **Footnotes**
 
-1. `desktop` launches / attaches to the Chrome **on the PC it runs on**. It cannot reach a Chrome on another machine (i.e. the logger and the browser are the same PC).
-2. Chrome on iPhone runs on WebKit (WKWebView) on iOS and is not a Web Inspector target. green_light's iOS recording supports **Safari only** on iPhone / iPad.
-3. `safaridriver` ships with macOS and is **macOS-only**. It does not exist on Windows / Linux.
-4. The implementation is the same pure-Python code on every OS, but **recording from a real device has
+1. What `desktop` launches / attaches to is the Chrome **on the PC running the logger**. It cannot reach a Chrome on another machine (i.e. the logger and the browser are the same PC).
+2. `safaridriver` ships with macOS and is **macOS-only**. It does not exist on Windows / Linux.
+3. The implementation is the same pure-Python code on every OS, but **recording from a real device has
    only been verified on macOS**. Windows setup needs two extra things (**Apple Mobile Device Support**
    and a **C compiler** — see
    "[Recording an iPhone / iPad's Safari](#recording-an-iphone--ipads-safari-usb--pymobiledevice3)").
    On Windows, **talking to usbmux is confirmed working**; recording with a device attached is untested.
+4. Chrome on iPhone runs on WebKit (WKWebView) on iOS and is not a Web Inspector target. green_light's iOS recording supports **Safari only** on iPhone / iPad.
 
 > ⚠ Using **Linux** as the logger host is **implemented but unverified** (the ⚠ of the legend). The
 > combinations are the same as the Windows column (`desktop` / `android` / `ios` apply, `safari` does not)
 > and you launch it with `glog.sh` — but **only the per-OS branching is implemented; it has never been
 > exercised on a real Linux machine**.
 
-The same thing as a diagram:
+As a diagram (this also shows the same-machine relationship of footnote 1):
 
 ```mermaid
 flowchart LR

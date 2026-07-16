@@ -62,30 +62,29 @@ AI に直接ブラウザを操作させる方式（MCP など）の代替では�
 
 凡例: ✅ **サポート** ／ ⚠ **実装済み・未検証** ／ ✗ **非対応**（設計上できない）
 
-| 対象ブラウザ / デバイス | `source` | 🪟 Windows で記録 | 🍎 Mac で記録 |
-| --- | --- | :---: | :---: |
-| Chrome（Windows） | `desktop` | ✅ | ✗ ¹ |
-| Chrome（Mac） | `desktop` | ✗ ¹ | ✅ |
-| Chrome（Android 実機・USB） | `android` | ✅ | ✅ |
-| Chrome（iPhone 実機・USB） | — | ✗ ² | ✗ ² |
-| Safari（Mac） | `safari` | ✗ ³ | ✅（実験的） |
-| Safari（iPhone / iPad 実機・USB） | `ios` | ⚠ ⁴ | ✅ |
+| 記録対象（`source`） | 🪟 Windows で記録 | 🍎 Mac で記録 |
+| --- | :---: | :---: |
+| Chrome — ロガーと同じ PC（`desktop`）¹ | ✅ | ✅ |
+| Chrome — Android 実機・USB（`android`） | ✅ | ✅ |
+| Safari — Mac 本体（`safari`） | ✗ ² | ✅（実験的） |
+| Safari — iPhone / iPad 実機・USB（`ios`） | ⚠ ³ | ✅ |
+| Chrome — iPhone 実機・USB | ✗ ⁴ | ✗ ⁴ |
 
 **脚注**
 
-1. `desktop` は「**実行中の PC 上の** Chrome」を起動 / アタッチする方式。別マシンの Chrome には届かない（＝ロガーとブラウザは同じ PC）。
-2. iPhone の Chrome は iOS 上で WebKit（WKWebView）で動き、Web インスペクタの対象外。green_light の iOS 記録は iPhone / iPad の **Safari のみ**対応。
-3. `safaridriver` は macOS 同梱ツールで **macOS 専用**。Windows / Linux には存在しない。
-4. 実装は OS 共通（純 Python）だが、**実機での記録を検証したのは macOS のみ**。Windows は
+1. `desktop` が起動 / アタッチするのは**ロガーを動かしている PC** の Chrome。別マシンの Chrome には届かない（＝ロガーとブラウザは同じ PC）。
+2. `safaridriver` は macOS 同梱ツールで **macOS 専用**。Windows / Linux には存在しない。
+3. 実装は OS 共通（純 Python）だが、**実機での記録を検証したのは macOS のみ**。Windows は
    セットアップに追加要件が2つある（**Apple Mobile Device Support** と **C コンパイラ**。
    「[iPhone / iPad の Safari を記録する](#iphone--ipad-の-safari-を記録するusb--pymobiledevice3)」節を参照）。
    Windows でも **usbmux との通信までは確認済み**（端末を繋いでの記録が未検証）。
+4. iPhone の Chrome は iOS 上で WebKit（WKWebView）で動き、Web インスペクタの対象外。green_light の iOS 記録は iPhone / iPad の **Safari のみ**対応。
 
 > ⚠ **Linux をロガーにする場合は「実装済み・未検証」**（表の ⚠ 相当）。対象の組み合わせは Windows 列と同じ
 > （`desktop` / `android` / `ios` が対象で `safari` は不可）で、起動は `glog.sh`。ただし **OS 分岐を
 > 実装してあるだけで、Linux 実機での動作確認はしていない**。
 
-同じ内容を図にしたもの:
+図にすると（脚注1の「ロガーとブラウザは同じ機体」という関係も合わせて見える）:
 
 ```mermaid
 flowchart LR
