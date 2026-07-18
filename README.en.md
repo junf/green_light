@@ -211,6 +211,7 @@ Arguments you can pass to `glog.bat`:
 |----------|-------------|
 | `<URL>` (positional) | URL to open on launch. Takes precedence over `start_url` in `config.json` |
 | `--config <name>` / `-c <name>` | Select the config set to use. A name (`myapp` → `config.myapp.json`) or a path. `default` means `config.json`. See "Switching configs per project" below |
+| `--check` / `--doctor` | Do not record: just diagnose **whether the phone is connected right now** and exit (for `source: ios` / `android`) |
 
 - The `--config=<name>` / `-c=<name>` **equals-sign** form is also accepted.
 - A URL and `--config` can be **combined** (in any order).
@@ -221,6 +222,32 @@ Arguments you can pass to `glog.bat`:
 :: Use the myapp config and open the given URL on launch
 glog.bat --config myapp https://example.com/
 ```
+
+#### `--check`: is the phone connected?
+
+With a USB-connected phone (`source: ios` / `android`), **the reason it is not working is hard to tell
+apart at capture time**. `--check` diagnoses the connection in three stages without starting a recording,
+and prints only where it broke and what to do about it.
+
+```bat
+glog.bat --config myandroid --check
+```
+
+```
+green_light Android connection check  (port 9333, the only attached device)
+[1/3] adb usable ........................ OK  D:\tools\platform-tools\adb.EXE
+[2/3] device attached / authorized ...... OK  the only attached device  (device)
+[3/3] Chrome DevTools / pages ........... OK  13 page(s)  Chrome/150.0.7871.124
+=> green_light can reach the device. You can start glog.
+```
+
+- The stages are **adb → device attached/authorized → Chrome DevTools** for Android, and
+  **usbmux → lockdown (trust) → Web Inspector** for iOS.
+- Without `--config`, it picks the target from the running captures / the phone configs on disk
+  (auto-selecting when there is only one candidate).
+- Exit codes: **0 = reachable, 1 = a stage failed, 2 = nothing was checked** (e.g. not a phone config).
+- **Safe to run during a capture.** When the port is already served it probes read-only, and it only
+  ever removes an `adb forward` that it created itself, so it cannot tear down a running recording.
 
 ### If you delete the log file while recording
 
@@ -619,6 +646,31 @@ glog.bat --config ios       :: Windows
 It attaches to the pages open in the device's Safari and records their console output and uncaught exceptions
 from then on. Just **use the device normally**. Stop with `Ctrl+C`.
 
+### When it will not connect
+
+Start with `glog.bat --config <name> --check` (see "Command-line arguments") to see whether it is usbmux,
+trust, or Web Inspector that is stuck.
+
+An iPhone's USB link (the muxed mode of iOS 17+) can get **stuck in software even when the cable and the
+phone are fine**, and re-plugging USB does not clear that state. For **macOS only**, `ios-recover.sh` ships
+alongside the tool to walk through the recovery.
+
+```sh
+./ios-recover.sh          # without a config it skips the port-related stage
+./ios-recover.sh ios      # reads the port from config.ios.json
+```
+
+It works from least disruptive to most: stop leftover processes → restart usbmuxd → device-side reset.
+
+> ⚠ **The script never runs `sudo` itself.** Restarting usbmuxd needs root and drops **every other usbmux
+> client on the Mac** (Finder device sync, Xcode, a backup in flight), so the script only **prints** the
+> command and leaves the decision to you — the same rule this tool follows for `safaridriver --enable`.
+> It also lists any process before signalling it and asks for confirmation first.
+
+Windows has no usbmuxd; **Apple Mobile Device Service** plays that role instead, so the script does not
+apply there (running it prints a macOS-only notice and exits). Restart that service from `services.msc`
+and re-plug the device.
+
 ### iOS limitations (vs the Chrome version)
 
 - **`start_url` is ignored**: the tool does not open pages on the device; you open them yourself.
@@ -686,6 +738,10 @@ This is a tool intended for a developer to use on their own machine. Design poin
 - **iOS recording is localhost-only and unprivileged too.** The server that bridges the device's Web Inspector
   to CDP binds `127.0.0.1` (never the LAN). It uses **no root/sudo and no tunnel**, and mounts no developer
   disk image.
+- **Anything needing elevation is printed, never run.** Neither `safaridriver --enable` nor the
+  `sudo pkill usbmuxd` that `ios-recover.sh` suggests is ever **executed by this tool or its bundled
+  scripts**. Both have consequences you should agree to first — the former grants Safari automation, the
+  latter disconnects every usbmux client on the Mac — so running them stays your decision.
 
 Things to watch out for in operation:
 

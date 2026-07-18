@@ -198,6 +198,7 @@ macOS / Linux は `glog.sh` に同じ引数を渡す：
 |------|------|
 | `<URL>`（位置引数） | 起動時に開く URL。`config.json` の `start_url` より優先 |
 | `--config <名前>` / `-c <名前>` | 使う設定セットを指定。名前（`myapp` → `config.myapp.json`）でもパスでも可。`default` は `config.json`。詳細は下の「プロジェクト毎に設定を切り替える」参照 |
+| `--check` / `--doctor` | 記録は始めず、**スマホが今つながっているかだけ**を診断して終了（`source: ios` / `android` 用） |
 
 - `--config=<名前>` / `-c=<名前>` の **等号付き**表記も可。
 - URL と `--config` は**併用**できる（順不同）。
@@ -207,6 +208,30 @@ macOS / Linux は `glog.sh` に同じ引数を渡す：
 :: myapp 用の設定で、起動時に指定 URL を開く
 glog.bat --config myapp https://example.com/
 ```
+
+#### `--check`：スマホがつながっているか調べる
+
+USB 接続のスマホ（`source: ios` / `android`）は、**つながっていない理由が実行時には見分けにくい**。
+`--check` は記録を始めずに接続を3段階で診断し、どこで失敗しているかと対処法だけを表示する。
+
+```bat
+glog.bat --config myandroid --check
+```
+
+```
+green_light Android connection check  (port 9333, the only attached device)
+[1/3] adb usable ........................ OK  D:\tools\platform-tools\adb.EXE
+[2/3] device attached / authorized ...... OK  the only attached device  (device)
+[3/3] Chrome DevTools / pages ........... OK  13 page(s)  Chrome/150.0.7871.124
+=> green_light can reach the device. You can start glog.
+```
+
+- 診断する段階は、Android が **adb → 端末の接続/認可 → Chrome の DevTools**、
+  iOS が **usbmux → lockdown（信頼）→ Web インスペクタ**。
+- `--config` を省くと、稼働中の記録／ディスク上のスマホ用 config から対象を選ぶ（候補が1つなら自動選択）。
+- 終了コードは **0＝到達できた／1＝どこかの段階で失敗／2＝診断していない**（スマホ用 config でない等）。
+- **記録中の実行も安全**。すでにポートが使われている場合は読み取り専用で確認するだけで、
+  `adb forward` は自分が作ったものしか削除しない（動作中の記録を壊さないため）。
 
 ### 記録中にログファイルを消したら
 
@@ -595,6 +620,30 @@ glog.bat --config ios       :: Windows
 端末の Safari で開いているページに自動でアタッチし、以後そのページのコンソール出力・未捕捉例外を
 記録し続ける。端末側で**普通に操作すればよい**。停止は `Ctrl+C`。
 
+### つながらないとき
+
+まず `glog.bat --config <名前> --check`（「コマンドライン引数」の節を参照）で、
+usbmux / 信頼 / Web インスペクタのどこで止まっているかを見る。
+
+iPhone の USB 接続（iOS 17+ の muxed mode）は、**ケーブルと端末が正常でもソフト側の状態が固まる**ことがある。
+この状態は USB を挿し直しても解消しない。**macOS のみ**、その復旧を手順化した `ios-recover.sh` を同梱している。
+
+```sh
+./ios-recover.sh          # config を指定しない場合はポート関連の段階を飛ばす
+./ios-recover.sh ios      # config.ios.json からポートを読む
+```
+
+残っているプロセスの停止 → usbmuxd の再起動 → 端末側リセット、と影響の小さい順に案内する。
+
+> ⚠ **このスクリプトは `sudo` を自分では実行しない。** usbmuxd の再起動には root が必要で、
+> かつ Mac 上の**他の usbmux 利用者すべて**（Finder の端末同期・Xcode・実行中のバックアップ等）を
+> 巻き込む。そのためコマンドを**表示するだけ**にとどめ、実行するかは利用者が判断する
+> （`safaridriver --enable` と同じ方針）。プロセスの停止も、対象を一覧表示して確認を取ってから行う。
+
+Windows には usbmuxd が無く、代わりに **Apple Mobile Device Service** が同じ役割を担うため、
+このスクリプトは動かない（実行すると macOS 専用である旨を表示して終了する）。`services.msc` から
+同サービスを再起動し、端末を挿し直すこと。
+
 ### iOS 版の制限（Chrome 版との差）
 
 - **`start_url` は無視される**：PC 側から端末の Safari にページを開かせない（端末で自分で開く）。
@@ -659,6 +708,10 @@ WebSocket connection to 'wss://…/websocket?***&vsn=2.0.0' failed
 - **iOS 記録も localhost 限定・非特権**。端末の Web Inspector を CDP に橋渡しするサーバは
   `127.0.0.1` にバインドします（LAN には出しません）。**root / sudo も tunnel も使いません**し、
   デベロッパーディスクイメージのマウントもしません。
+- **昇格が要る操作は「表示するだけ」**。`safaridriver --enable` も、`ios-recover.sh` が案内する
+  `sudo pkill usbmuxd` も、**本ツール／同梱スクリプトが自分で実行することはありません**。
+  影響（前者は Safari の自動化許可、後者は Mac 上の全 usbmux 利用者の切断）を理解した上で
+  利用者が実行するべきものだからです。
 
 運用側で気をつけること:
 
