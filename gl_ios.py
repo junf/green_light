@@ -241,6 +241,10 @@ class IOSSource:
             except Exception:
                 time.sleep(0.5)
         print("[error] The CDP bridge did not come up in time.")
+        print("        The device is visible but Web Inspector did not answer. Check:")
+        print("        Settings > Apps > Safari > Advanced > Web Inspector is ON, and a")
+        print("        Safari page is open. Diagnose:  ./glog.sh --config <name> --check")
+        print("        Recover a stuck connection with:  ./ios-recover.sh")
         sys.exit(1)
 
     def run(self, start_url, active_filters, log_path):
@@ -256,6 +260,21 @@ class IOSSource:
 
         def matches(url):
             return (not active_filters) or any(f in url for f in active_filters)
+
+        # Fast preflight: if usbmux sees no device, the bridge would just hang and
+        # time out after 30s with a cryptic message. Fail now with a clear one.
+        try:
+            from gl_ios_doctor import device_present
+            if not device_present(udid):
+                print("[error] green_light cannot see the device (usbmux reports none).")
+                print("        Unlock the iPhone, plug USB straight into the Mac (no hub),")
+                print("        tap 'Trust' if asked, then run:  ./glog.sh --config <name> --check")
+                print("        If it stays invisible, recover with:  ./ios-recover.sh")
+                sys.exit(1)
+        except SystemExit:
+            raise
+        except Exception:
+            pass   # never let the preflight itself block a capture; fall through to the bridge
 
         try:
             print("[info] Starting the CDP bridge to the device (no sudo / no tunnel needed)...")
