@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 import urllib.request
+
+# What is on the port: nothing / something that is not DevTools / a real endpoint.
+PORT_FREE = "free"
+PORT_FOREIGN = "foreign"
+PORT_CDP = "cdp"
 
 
 def line(n, total, label, status, note=""):
@@ -23,16 +29,47 @@ def line(n, total, label, status, note=""):
     print(f"[{n}/{total}] {label} {dots} {status}{tail}")
 
 
-def bridge_already_up(port: int) -> bool:
-    """True if a green_light capture (glog) is already serving this port. A plain
-    TCP connect -- not an HTTP /json/list round-trip, which can take >2s while the
-    endpoint queries the device and would wrongly read as 'nothing there', making a
-    doctor open a *second* session that competes with the live glog and can kill it."""
+def endpoint_probe(port: int, settle: float = 0.0):
+    """What is listening on 127.0.0.1:<port> -- (state, info).
+
+    state is PORT_FREE (nothing accepted the connection), PORT_FOREIGN (something
+    accepted it but does not speak DevTools) or PORT_CDP (a DevTools endpoint
+    answered, info = its /json/version dict).
+
+    A plain TCP connect only proves *something* is bound, which is never enough to
+    conclude the device is reachable: a leftover `adb forward` from a session whose
+    console was closed still accepts connections, and so does any unrelated process
+    squatting the port. Both used to read as success. The /json/version round-trip
+    that settles it is read-only and opens no debug session, so it cannot disturb a
+    capture that is genuinely running.
+
+    `settle` retries for that many seconds before giving up, for the case where we
+    have just created the forward ourselves and the endpoint may still be waking up.
+    """
+    deadline = time.time() + max(0.0, settle)
+    state, info = PORT_FREE, None
+    while True:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                pass
+        except OSError:
+            state, info = PORT_FREE, None
+        else:
+            info = _json_version(port)
+            state = PORT_CDP if info else PORT_FOREIGN
+        if state == PORT_CDP or time.time() >= deadline:
+            return state, info
+        time.sleep(0.4)
+
+
+def _json_version(port: int):
+    """The endpoint's /json/version dict, or None if it is not a DevTools endpoint."""
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=1):
-            return True
-    except OSError:
-        return False
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=4) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
 
 
 def bridge_pages(port: int):

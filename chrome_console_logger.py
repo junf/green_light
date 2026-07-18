@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -39,6 +40,51 @@ from gl_desktop import DesktopSource
 from gl_android import AndroidSource
 
 PHONE_SOURCES = ("ios", "android")   # sources that `--check` can diagnose
+SAFE_REF = re.compile(r"^[A-Za-z0-9._-]+$")   # a config ref we are willing to adopt
+
+
+def _process_lines():
+    """('pid command...' for every process, enumeration-worked). The flag matters:
+    "I could not look" and "nothing is running" are different answers, and only the
+    second one justifies falling through to the config picker in silence."""
+    if sys.platform == "win32":
+        # Windows has no ps: PowerShell's `ps` is an alias for Get-Process, which
+        # subprocess cannot invoke and which does not carry command lines anyway.
+        # Pin the output encoding so the decode below is not at the mercy of the
+        # console codepage.
+        cmd = ["powershell", "-NoProfile", "-Command",
+               "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+               "Get-CimInstance Win32_Process | ForEach-Object "
+               "{ '{0} {1}' -f $_.ProcessId, $_.CommandLine }"]
+    else:
+        cmd = ["ps", "-Ao", "pid=,command="]
+    try:
+        # Bytes, not text=True: another process's command line can hold anything, and
+        # on a cp932 console text mode raises UnicodeDecodeError inside subprocess's
+        # reader thread (observed on Windows), losing the output entirely. We only
+        # ever match ASCII here, so replacing undecodable bytes costs us nothing.
+        r = subprocess.run(cmd, capture_output=True, timeout=15)
+    except Exception:
+        return [], False
+    if r.returncode != 0:
+        return [], False
+    return (r.stdout or b"").decode("utf-8", "replace").splitlines(), True
+
+
+def _adoptable_ref(ref):
+    """True if `ref` names a config file of ours that we are willing to load off the
+    back of a process listing. The listing is system-wide, so a ref harvested from it
+    is untrusted input -- and a config is the project's trust boundary (it names the
+    adb/chrome executable to launch). Confine it to a plain name resolving to an
+    existing config.<ref>.json inside the script directory: no paths, no traversal,
+    no adopting a config from somewhere else on the machine."""
+    if ref == "":
+        return True                          # the default config.json, always ours
+    if not SAFE_REF.match(ref):
+        return False
+    path = os.path.realpath(os.path.join(core.SCRIPT_DIR, f"config.{ref}.json"))
+    return (os.path.isfile(path)
+            and os.path.dirname(path) == os.path.realpath(core.SCRIPT_DIR))
 
 
 def running_glog_config_refs():
@@ -46,15 +92,14 @@ def running_glog_config_refs():
     --check invocation and other --check/--doctor runs excluded). So `--check` with
     no --config can auto-target the one running glog instead of prompting. Processes
     sharing a config collapse to one ref; an unflagged (default) run yields "".
-    Returns [] if none, or a de-duplicated list (len 1 == a single clear target)."""
+    Returns (refs, enumerated): refs is de-duplicated (len 1 == a single clear
+    target); enumerated is False when the process list could not be read at all."""
     me = os.getpid()
-    try:
-        out = subprocess.run(["ps", "-Ao", "pid=,command="],
-                             capture_output=True, text=True, timeout=5).stdout
-    except Exception:
-        return []
+    lines, ok = _process_lines()
+    if not ok:
+        return [], False
     refs = []
-    for line in out.splitlines():
+    for line in lines:
         if "chrome_console_logger.py" not in line:
             continue
         parts = line.split()
@@ -72,9 +117,9 @@ def running_glog_config_refs():
         if any(a in ("--check", "--doctor") for a in args):
             continue                         # another --check run, not a live capture
         ref, _ = core.parse_cli(args)
-        if ref not in refs:
+        if _adoptable_ref(ref) and ref not in refs:
             refs.append(ref)
-    return refs
+    return refs, True
 
 
 def _ref_label(ref):
@@ -112,14 +157,18 @@ def choose_config_among(refs, title):
     """Pick from a fixed list of config refs (running captures, or phone configs) --
     not every config.*.json file. Returns a ref ("" = default). Exits 2 when it
     cannot resolve one (out of range, unknown name, or non-interactive)."""
+    def no_choice():
+        shown = [r or "default" for r in refs]
+        print(f"[warn] Several candidates {shown} and no way to ask. "
+              "Pick one with --config <name>.")
+        sys.exit(2)
+
     try:
         interactive = bool(sys.stdin) and sys.stdin.isatty()
     except Exception:
         interactive = False
     if not interactive:
-        shown = [r or "default" for r in refs]
-        print(f"[warn] 対象が複数あります {shown}（非対話のため選択不可）。--config で指定してください。")
-        sys.exit(2)
+        no_choice()
     print("=" * 50)
     print(title)
     for i, r in enumerate(refs, 1):
@@ -127,19 +176,27 @@ def choose_config_among(refs, title):
     print("=" * 50)
     try:
         ans = input("Number or name: ").strip()
-    except (EOFError, KeyboardInterrupt):
+    except EOFError:
+        # isatty() is not conclusive: on Windows stdin redirected from NUL reports
+        # True (NUL is a character device), which is exactly how a scheduler or a
+        # service wrapper starts us. Reaching EOF proves there is nobody to ask, so
+        # print the same actionable guidance instead of exiting mute.
+        print()
+        no_choice()
+    except KeyboardInterrupt:
+        print()
         sys.exit(2)
     if ans.isdigit():
         k = int(ans)
         if 1 <= k <= len(refs):
             return refs[k - 1]
-        print("[warn] 範囲外です。")
+        print(f"[warn] Out of range: pick 1-{len(refs)}.")
         sys.exit(2)
     if ans == "default" and "" in refs:
         return ""
     if ans in refs:
         return ans
-    print(f"[warn] 選択肢にない config です: {ans}")
+    print(f"[warn] Not one of the choices: {ans}")
     sys.exit(2)
 
 
@@ -148,21 +205,25 @@ def resolve_check_config():
     running phone capture; else a phone config file; else fall back to the usual
     all-config picker. Auto-selects when exactly one candidate exists; prompts
     (among just those candidates) when several do."""
-    running = [r for r in running_glog_config_refs() if config_source(r) in PHONE_SOURCES]
+    found, enumerated = running_glog_config_refs()
+    if not enumerated:
+        print("[info] Cannot list running processes on this platform; "
+              "choosing from the phone configs on disk instead.")
+    running = [r for r in found if config_source(r) in PHONE_SOURCES]
     if len(running) == 1:
-        print(f"[info] 稼働中の glog を自動選択: config '{running[0] or 'default'}'")
+        print(f"[info] Auto-selected the running capture: config '{running[0] or 'default'}'")
         return running[0]
     if len(running) > 1:
-        ref = choose_config_among(running, "稼働中の glog から選択してください:")
-        print(f"[info] 選択: config '{ref or 'default'}'")
+        ref = choose_config_among(running, "Which running capture do you mean?")
+        print(f"[info] Selected: config '{ref or 'default'}'")
         return ref
     phones = phone_config_refs()
     if len(phones) == 1:
-        print(f"[info] スマホ用 config を自動選択: config '{phones[0] or 'default'}'")
+        print(f"[info] Auto-selected the only phone config: '{phones[0] or 'default'}'")
         return phones[0]
     if len(phones) > 1:
-        ref = choose_config_among(phones, "スマホ用 config から選択してください (ios/android):")
-        print(f"[info] 選択: config '{ref or 'default'}'")
+        ref = choose_config_among(phones, "Which phone config do you mean? (ios / android)")
+        print(f"[info] Selected: config '{ref or 'default'}'")
         return ref
     return core.choose_config()   # no phone config at all: the usual picker / default
 
@@ -195,8 +256,11 @@ def main():
         if src == "android":
             from gl_android_doctor import doctor
             sys.exit(doctor(port, serial))
-        print(f"[info] --check はスマホ接続の確認用です（source=ios/android）。この config は '{src}' です。")
-        sys.exit(0)
+        # Exit 2, not 0: nothing was diagnosed. 0 means "a check ran and passed", and
+        # a wrapper gating on the exit code must not read "I did not run" as healthy.
+        print(f"[info] --check diagnoses a phone connection (source=ios/android); "
+              f"this config is '{src}'. Nothing to check.")
+        sys.exit(2)
 
     # Decide active filters and the URL to open at startup (behavior depends on filter_enabled / filter_menu)
     active_filters, preset_url = core.resolve_startup()

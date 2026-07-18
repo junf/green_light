@@ -13,25 +13,34 @@ localhost:<port>. It can fail at three identifiable stages:
                                         Chrome is squatting the port)
 
 Like the iOS doctor, it prints a clear PASS / FAIL with the specific remedy, and it
-never disturbs a live capture: when a glog is already running on the port it reads
-that endpoint read-only instead of touching the adb forward (removing our own
-forward would tear down the running glog's).
+never disturbs a live capture: when the port is already served it probes read-only
+and leaves the adb forward alone (removing it would tear down a running capture's).
+It only ever removes a forward it created itself.
+
+A reachable endpoint is reported as exactly that. The port being served does not
+prove a capture is running -- a forward outlives the session that made it, since
+closing the console skips AndroidSource.cleanup -- so the check confirms a DevTools
+endpoint really answers rather than inferring it from a bare TCP connect.
 """
 
 from __future__ import annotations
 
 import subprocess
 
-import gl_core as core
 import gl_android as A
-from gl_check import line, bridge_already_up, bridge_pages
+from gl_check import (line, bridge_pages, endpoint_probe,
+                      PORT_FREE, PORT_FOREIGN, PORT_CDP)
+
+# How long to keep probing a forward we just created before calling it dead.
+SETTLE = 10.0
 
 # What to tell the user for each non-online adb state.
 STATE_REMEDY = {
-    "offline": "画面をロック解除してください（ロック中や設定アプリ前面だと offline）。必要なら: adb reconnect",
-    "unauthorized": "デバイスの「USB デバッグを許可しますか？」を承認してください（『常に許可』推奨）。",
-    "none": "USB 接続し、開発者オプションで USB デバッグを ON に（確認: adb devices）。",
-    "multiple": 'デバイスが複数あります。config の "device_serial" に対象のシリアルを設定してください。',
+    "offline": "unlock the screen (a locked device, or one sitting in Settings, reads as offline). "
+               "If it persists: adb reconnect",
+    "unauthorized": "approve the 'Allow USB debugging?' prompt on the device ('Always allow' recommended).",
+    "none": "connect USB and turn on USB debugging in Developer options (verify with: adb devices).",
+    "multiple": 'several devices are attached: set "device_serial" in the config to the one you want.',
 }
 
 
@@ -60,71 +69,81 @@ def _unforward(adb, port):
 def doctor(port: int, serial: str = "") -> int:
     """Run the staged health check, print results, return a process exit code
     (0 = green_light can see the phone; 1 = a stage failed)."""
-    print(f"green_light Android デバイス診断  (port {port}"
-          + (f", serial {serial}" if serial else ", 接続中の1台") + ")")
+    print(f"green_light Android connection check  (port {port}"
+          + (f", serial {serial}" if serial else ", the only attached device") + ")")
     total = 3
 
     # ---- Stage 1: adb usable ----
     adb = A.find_adb()
     if not adb:
-        line(1, total, "adb が使えるか", "FAIL", "adb が見つかりません")
-        print('  対処: Android platform-tools を導入するか、config の "adb_path" を設定してください。')
+        line(1, total, "adb usable", "FAIL", "adb not found")
+        print('  Fix: install Android platform-tools, or set "adb_path" in the config.')
         return 1
-    line(1, total, "adb が使えるか", "OK", adb)
+    line(1, total, "adb usable", "OK", adb)
 
     # ---- Stage 2: device online / authorized ----
     st = A.adb_device_state(adb)
     if st != "device":
-        line(2, total, "デバイス接続 / 認可", "FAIL", f"state: {st}")
-        print("  対処: " + STATE_REMEDY.get(st, "adb devices で状態を確認してください。"))
+        line(2, total, "device attached / authorized", "FAIL", f"state: {st}")
+        print("  Fix: " + STATE_REMEDY.get(st, "check the state with: adb devices"))
         return 1
-    line(2, total, "デバイス接続 / 認可", "OK", (serial or "接続中の1台") + "  (device)")
+    line(2, total, "device attached / authorized", "OK",
+         (serial or "the only attached device") + "  (device)")
 
     # ---- Stage 3: Chrome DevTools reachable ----
-    # If a glog is already running, read its endpoint read-only. Do NOT touch the adb
-    # forward: removing it (our cleanup) would tear down the running glog's capture.
-    if bridge_already_up(port):
-        info = core.endpoint_alive()
-        try:
-            pages = bridge_pages(port)
-            n = f"{len(pages)} page(s)"
-        except Exception:
-            pages, n = [], "?"
-        note = f"glog 稼働中: {n} を認識"
-        if info and not A.is_android_endpoint(info):
-            note += "（※ android 以外の Chrome の可能性）"
-        line(3, total, "Chrome DevTools / ページ", "OK", note)
-        print("=> green_light はデバイスを認識できています（glog 稼働中）。")
-        return 0
-
-    # Not running: set up our own forward, probe, then remove only our forward.
-    ok, msg = _forward(adb, port)
-    if not ok:
-        line(3, total, "Chrome DevTools / ページ", "FAIL", "adb forward 失敗")
-        low = msg.lower()
-        if any(k in low for k in ("cannot bind", "in use", "10048", "address already")):
-            print(f'  対処: port {port} が使用中です。config の "port" を変更してください。')
-        else:
-            print(f"  対処: {msg or 'adb forward に失敗しました。'}")
+    # Something may already be serving the port: a live capture, or a forward left
+    # behind by an earlier session (closing the console skips AndroidSource.cleanup,
+    # so on Windows that leftover is the normal state). Either way we must NOT touch
+    # the forward -- removing it would tear down a capture that is running -- but we
+    # must still confirm a DevTools endpoint actually answers before reporting OK.
+    state, info = endpoint_probe(port)
+    ours = False
+    if state == PORT_FOREIGN:
+        line(3, total, "Chrome DevTools / pages", "FAIL",
+             f"port {port} is held by something that is not DevTools")
+        print(f"  Fix: another process is using port {port}. If it is a stale forward from an")
+        print(f"       earlier session, clear it with:  adb forward --remove tcp:{port}")
+        print('       Otherwise change "port" in the config.')
         return 1
+    if state == PORT_FREE:
+        # Nothing there: set up our own forward, probe, then remove only our forward.
+        ok, msg = _forward(adb, port)
+        if not ok:
+            line(3, total, "Chrome DevTools / pages", "FAIL", "adb forward failed")
+            low = msg.lower()
+            if any(k in low for k in ("cannot bind", "in use", "10048", "address already")):
+                print(f'  Fix: port {port} is already in use. Change "port" in the config.')
+            else:
+                print(f"  Fix: {msg or 'adb forward failed.'}")
+            return 1
+        ours = True
+        state, info = endpoint_probe(port, settle=SETTLE)
     try:
-        info = core.endpoint_alive()
-        if not info:
-            line(3, total, "Chrome DevTools / ページ", "FAIL", "DevTools 未検出")
-            print("  対処: デバイスで Chrome を開いてください（デバッグ可能なページが必要）。")
+        if state != PORT_CDP or not info:
+            line(3, total, "Chrome DevTools / pages", "FAIL", "no DevTools endpoint")
+            print("  Fix: open Chrome on the device (a debuggable page must exist).")
             return 1
         if not A.is_android_endpoint(info):
-            line(3, total, "Chrome DevTools / ページ", "FAIL",
-                 f"android ではない ({info.get('Browser', '?')})")
-            print(f'  対処: port {port} を別の Chrome が使用中です。config の "port" を変更してください。')
+            line(3, total, "Chrome DevTools / pages", "FAIL",
+                 f"not an Android endpoint ({info.get('Browser', '?')})")
+            print(f'  Fix: a different Chrome is using port {port}. Change "port" in the config.')
             return 1
+        # The endpoint is real and is the device's. Report what was actually observed:
+        # a reachable endpoint does not prove a capture is running, only that one could.
         try:
-            pages = bridge_pages(port)
-            detail = f"{len(pages)} page(s)  {info.get('Browser', '')}"
-        except Exception:
-            detail = info.get("Browser", "reachable")
-        line(3, total, "Chrome DevTools / ページ", "OK", detail)
-        print("=> green_light はデバイスを正しく認識できています。glog を起動できます。")
+            npages = len(bridge_pages(port))
+            detail = f"{npages} page(s)  {info.get('Browser', '')}".strip()
+        except Exception as e:
+            npages, detail = None, f"reachable, page list unavailable ({type(e).__name__})"
+        line(3, total, "Chrome DevTools / pages", "OK", detail)
+        if npages == 0:
+            print("  Note: no debuggable page is open in Chrome on the device yet.")
+        if ours:
+            print("=> green_light can reach the device. You can start glog.")
+        else:
+            print(f"=> green_light can reach the device (a DevTools endpoint is already on port {port};"
+                  " a running capture, or a forward left by an earlier session).")
         return 0
     finally:
-        _unforward(adb, port)
+        if ours:
+            _unforward(adb, port)

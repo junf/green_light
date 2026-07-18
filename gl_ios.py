@@ -243,8 +243,12 @@ class IOSSource:
         print("[error] The CDP bridge did not come up in time.")
         print("        The device is visible but Web Inspector did not answer. Check:")
         print("        Settings > Apps > Safari > Advanced > Web Inspector is ON, and a")
-        print("        Safari page is open. Diagnose:  ./glog.sh --config <name> --check")
-        print("        Recover a stuck connection with:  ./ios-recover.sh")
+        print("        Safari page is open. Diagnose:  glog --config <name> --check")
+        try:
+            from gl_ios_doctor import recovery_hint
+            print(f"        {recovery_hint()}")
+        except Exception:
+            pass
         sys.exit(1)
 
     def run(self, start_url, active_filters, log_path):
@@ -262,19 +266,33 @@ class IOSSource:
             return (not active_filters) or any(f in url for f in active_filters)
 
         # Fast preflight: if usbmux sees no device, the bridge would just hang and
-        # time out after 30s with a cryptic message. Fail now with a clear one.
+        # time out after 30s with a cryptic message. Fail now with a clear one --
+        # but only when usbmux actually answered. If the probe itself could not run,
+        # warn and continue: the bridge surfaces the real error far better than a
+        # guess would, and a broken preflight must never be what blocks a capture.
         try:
-            from gl_ios_doctor import device_present
-            if not device_present(udid):
-                print("[error] green_light cannot see the device (usbmux reports none).")
-                print("        Unlock the iPhone, plug USB straight into the Mac (no hub),")
-                print("        tap 'Trust' if asked, then run:  ./glog.sh --config <name> --check")
-                print("        If it stays invisible, recover with:  ./ios-recover.sh")
+            from gl_ios_doctor import (device_status, recovery_hint,
+                                       DEV_NONE, DEV_MISMATCH, DEV_ERROR)
+            status, _serial, _conn, detail = device_status(udid)
+            if status == DEV_NONE:
+                print("[error] green_light cannot see the device (usbmux reports none attached).")
+                print("        Unlock the iPhone, plug USB straight into the machine (no hub),")
+                print("        tap 'Trust' if asked, then run:  glog --config <name> --check")
+                print(f"        {recovery_hint()}")
                 sys.exit(1)
+            if status == DEV_MISMATCH:
+                print(f'[error] The configured "device_serial" ({udid}) is not attached.')
+                print(f"        Attached instead: {detail}")
+                print('        Fix "device_serial" in the config, or clear it to use the only device.')
+                sys.exit(1)
+            if status == DEV_ERROR:
+                print(f"[warn] Could not check for the device before starting: {detail}")
+                print("       Continuing to the bridge, which will report the underlying error.")
         except SystemExit:
             raise
-        except Exception:
-            pass   # never let the preflight itself block a capture; fall through to the bridge
+        except Exception as e:
+            # Importing the doctor failed; that is our problem, not the user's capture.
+            print(f"[warn] Preflight unavailable ({type(e).__name__}); starting the bridge anyway.")
 
         try:
             print("[info] Starting the CDP bridge to the device (no sudo / no tunnel needed)...")
