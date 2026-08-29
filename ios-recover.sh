@@ -85,8 +85,12 @@ echo "[2] Looking for leftover processes on this Mac..."
 # Narrow to the named config when we have one: a blanket match would also stop an
 # unrelated capture (running desktop and android side by side is normal), and
 # losing a recording in progress is exactly the silent data loss we design against.
+# The word end is spelled "( |$)", not "\b": pgrep(1) here is POSIX ERE, which has no
+# \b -- macOS matches it as a literal "b". Measured: with --config ios running, the
+# \b form missed it entirely and instead matched an unrelated --config iosbogus, i.e.
+# it skipped the process we meant to stop and offered to kill a live capture we did not.
 if [ -n "$REF" ]; then
-  GLOG_PAT="chrome_console_logger\.py.*--config[= ]${REF}\b"
+  GLOG_PAT="chrome_console_logger\.py.*--config[= ]${REF}( |\$)"
 else
   GLOG_PAT="chrome_console_logger\.py"
 fi
