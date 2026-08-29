@@ -16,6 +16,9 @@
 # file:line prefix. gl_ios reads both console shapes (Log.entryAdded and, from 10.2,
 # Runtime.consoleAPICalled), so it spans the boundary either way.
 #
-# Verified on Windows against iOS 26.5.2: 11.2.1 (--check 3/3, capture with file:line,
-# no false disconnect) and previously 9.36.0.
+# Known-good anchor, for bisecting if a later release breaks capture. Upstream ships
+# fast (seven releases over 2026-08-26..29), and the pump guard keeps a bad one from
+# failing silently -- but only a recorded combination says how far back to go.
+#   pymobiledevice3 11.2.1 / iPhone12,8 iOS 26.5.2 / Windows  (2026-08-29)
+#   verified: --check 3/3, capture with file:line, no false disconnect
 pymobiledevice3>=10.2
