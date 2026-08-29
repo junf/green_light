@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Shared helpers for the `--check` connection doctors (iOS and Android).
+Shared helpers for the `--check` connection doctors (iOS and Android), plus the
+endpoint-identity helpers (is_ios_bridge / describe_endpoint) that the capture
+sources need too -- "is this endpoint mine?" has to give the same answer whether
+it is asked while diagnosing or while attaching.
 
 `--check` answers one question for either phone source: "does green_light see the
 device right now, and if not, which stage is broken?" The per-source specifics
@@ -100,6 +103,26 @@ def is_ios_bridge(info) -> bool:
     if isinstance(info, dict):
         return info.get("User-Agent") == "pymobiledevice3"
     return isinstance(info, list)
+
+
+def describe_endpoint(info) -> str:
+    """A short name for whatever answered /json/version, safe for any shape.
+
+    Every caller that rejects an endpoint wants to say what it found instead, and
+    the obvious `info.get("Browser")` is a trap: `info` is decoded JSON, so it is
+    an array whenever green_light's own iOS bridge (below 10.2) is on the port --
+    and .get() on that raises, turning a report we own into a traceback. That was
+    measured in the Android doctor, and the first fix put the guard in the
+    is_*_endpoint predicate, which only moved the crash to the message one line
+    below it. Keep the one description here so the next caller inherits it.
+
+    Naming the iOS bridge is worth the branch: "your other capture" and "a stray
+    Chrome" do not have the same fix, and the port advice is the whole point."""
+    if is_ios_bridge(info):
+        return "green_light's own iOS bridge"
+    if isinstance(info, dict):
+        return info.get("Browser", "?")
+    return "unrecognized"
 
 
 def bridge_pages(port: int):

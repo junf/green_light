@@ -17,6 +17,7 @@ import sys
 import time
 
 import gl_core as core
+from gl_check import describe_endpoint
 
 DEVTOOLS_SOCKET = "localabstract:chrome_devtools_remote"
 
@@ -152,6 +153,27 @@ def adb_forward(adb):
         sys.exit(1)
 
 
+def forward_exists(adb, port) -> bool:
+    """True if an adb forward for tcp:<port> to the DevTools socket is already set up.
+
+    Tells "a forward of ours is still standing" apart from "a stranger holds the
+    port". They look identical from a TCP connect -- adb's listener accepts the
+    connection whether or not anything answers on the device side -- so without
+    this, a leftover forward plus a closed Chrome reads as a foreign process."""
+    try:
+        r = subprocess.run(adb_args(adb, "forward", "--list"), capture_output=True, timeout=10)
+    except Exception:
+        return False
+    if r.returncode != 0:
+        return False
+    for row in (r.stdout or b"").decode("utf-8", "replace").splitlines():
+        parts = row.split()
+        # "<serial> tcp:<port> localabstract:chrome_devtools_remote"
+        if len(parts) >= 3 and parts[-2] == f"tcp:{port}" and parts[-1] == DEVTOOLS_SOCKET:
+            return True
+    return False
+
+
 def adb_unforward(adb):
     """Best-effort removal of the forward on exit."""
     try:
@@ -200,8 +222,16 @@ class AndroidSource:
                 self.cleanup()
                 sys.exit(1)
         if not is_android_endpoint(info):
-            print(f"[error] Port {core.CFG['port']} is not an Android device (got: {info.get('Browser','?')}).")
-            print('        Another Chrome is using this port. Set a different "port" in this config set.')
+            # describe_endpoint, not info.get(): endpoint_alive() hands back decoded
+            # JSON of whatever shape arrived. Defence in depth rather than a live
+            # bug -- a foreign process on the port makes adb_forward above fail and
+            # exit first (measured), so reaching here with a non-dict would take an
+            # endpoint answering through our own forward, i.e. something on the
+            # device registering Chrome's socket name. Cheap to be shape-safe: the
+            # same .get() one line into the rejection path did crash the doctor.
+            print(f"[error] Port {core.CFG['port']} is not an Android device "
+                  f"(got: {describe_endpoint(info)}).")
+            print('        Something else is using this port. Set a different "port" in this config set.')
             self.cleanup()
             sys.exit(1)
         print(f"[info] Attaching to Android Chrome ({info.get('Browser','')})")

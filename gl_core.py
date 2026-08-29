@@ -460,10 +460,19 @@ def handle_exception(p: dict):
 
 def fmt_log_entry(p: dict) -> str:
     """Format a Log.entryAdded payload into one output line. Shared with the iOS
-    source, whose bridge turns every WebKit console message into Log.entryAdded."""
+    source, whose bridge turns every WebKit console message into Log.entryAdded.
+
+    lineNumber is optional in this event and is genuinely missing for the most
+    common one there is. Measured on Chrome: a 404 arrives as
+    {'level','networkRequestId','source','text','timestamp','url'} -- no line at
+    all -- and defaulting to 0 printed `favicon.ico:1`, asserting line 1 of a file
+    nobody reported a line for. Print the file alone instead. Same guard as
+    fmt_console_api; this sibling was missed when that one was fixed."""
     e = p.get("entry", {})
     url = e.get("url", "")
-    prefix = f"{basename(url)}:{e.get('lineNumber',0)+1}" if url else ""
+    prefix = basename(url) if url else ""
+    if prefix and isinstance(e.get("lineNumber"), int):
+        prefix += f":{e['lineNumber'] + 1}"
     return f"{prefix} {e.get('text','')}".strip()
 
 

@@ -28,8 +28,8 @@ from __future__ import annotations
 import subprocess
 
 import gl_android as A
-from gl_check import (line, bridge_pages, endpoint_probe, is_ios_bridge,
-                      PORT_FREE, PORT_FOREIGN, PORT_CDP)
+from gl_check import (line, bridge_pages, describe_endpoint, endpoint_probe,
+                      is_ios_bridge, PORT_FREE, PORT_FOREIGN, PORT_CDP)
 
 # How long to keep probing a forward we just created before calling it dead.
 SETTLE = 10.0
@@ -99,6 +99,18 @@ def doctor(port: int, serial: str = "") -> int:
     state, info = endpoint_probe(port)
     ours = False
     if state == PORT_FOREIGN:
+        # Two very different states look identical here, because adb's own listener
+        # accepts the TCP connect whether or not Chrome is running on the device
+        # (measured: a forward aimed at a socket that does not exist still probes as
+        # PORT_FOREIGN). Ask adb which one it is. Getting this wrong sends the user
+        # hunting for a process that is squatting the port, when the actual fix is to
+        # open Chrome on the phone -- and per this module's docstring, a leftover
+        # forward is the *normal* state on Windows, so that was the common case.
+        if A.forward_exists(adb, port):
+            line(3, total, "Chrome DevTools / pages", "FAIL", "no DevTools on the device")
+            print("  Fix: open Chrome on the device (a debuggable page must exist).")
+            print(f"       (A forward for tcp:{port} is already set up, so the port itself is fine.)")
+            return 1
         line(3, total, "Chrome DevTools / pages", "FAIL",
              f"port {port} is held by something that is not DevTools")
         print(f"  Fix: another process is using port {port}. If it is a stale forward from an")
@@ -124,20 +136,8 @@ def doctor(port: int, serial: str = "") -> int:
             print("  Fix: open Chrome on the device (a debuggable page must exist).")
             return 1
         if not A.is_android_endpoint(info):
-            # Describe the squatter without assuming its shape. `info` is whatever
-            # /json/version returned, and green_light's own iOS bridge answers with an
-            # array below its 10.2 floor -- calling .get() on that turned a report we
-            # own into an AttributeError traceback (measured). Same guard as the iOS
-            # doctor's mirror case, and name the bridge when we recognise it: "your
-            # other capture" and "a stray Chrome" are not the same thing to fix.
-            if is_ios_bridge(info):
-                what = "green_light's own iOS bridge"
-            elif isinstance(info, dict):
-                what = info.get("Browser", "?")
-            else:
-                what = "unrecognized"
             line(3, total, "Chrome DevTools / pages", "FAIL",
-                 f"not an Android endpoint ({what})")
+                 f"not an Android endpoint ({describe_endpoint(info)})")
             print(f'  Fix: something else is using port {port}. Change "port" in the config.')
             if is_ios_bridge(info):
                 print("       An iOS capture and an Android one need separate ports.")

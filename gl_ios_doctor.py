@@ -98,17 +98,14 @@ async def _probe_webinspector(serial: str):
     asyncio.get_event_loop().set_exception_handler(lambda loop, ctx: None)
     lockdown = await create_using_usbmux(serial=serial)
     insp = WebinspectorService(lockdown=lockdown)
-    try:
-        await asyncio.wait_for(insp.connect(), timeout=CONNECT_TIMEOUT)
-    except asyncio.TimeoutError:
-        return False, "timeout"
-    try:
-        pages = await asyncio.wait_for(insp.get_open_pages(), timeout=PAGES_TIMEOUT)
-        n = sum(len(v) for v in (pages or {}).values())
-        detail = f"{n} page(s) open"
-    except Exception:
-        detail = "reachable (no page enumerated -- open a Safari page)"
-    finally:
+
+    async def close_all():
+        """Hand both clients back. This must run on EVERY exit, success or not:
+        the failure paths are the ones that matter. A wedged connection is what
+        brings people here, a timeout or WebInspectorNotEnabledError (Web Inspector
+        switched off -- the likeliest stage-3 failure) used to return past the
+        cleanup, and a leaked lockdown / Web Inspector session is exactly what
+        ios-recover.sh exists to clear. Diagnosing must not deepen the hole."""
         for closer in (insp.close, getattr(lockdown, "aclose", None), getattr(lockdown, "close", None)):
             if not closer:
                 continue
@@ -119,7 +116,21 @@ async def _probe_webinspector(serial: str):
             except Exception:
                 pass
         await asyncio.sleep(0.25)   # let the SSL transport finish closing before the loop ends
-    return True, detail
+
+    try:
+        try:
+            await asyncio.wait_for(insp.connect(), timeout=CONNECT_TIMEOUT)
+        except asyncio.TimeoutError:
+            return False, "timeout"
+        try:
+            pages = await asyncio.wait_for(insp.get_open_pages(), timeout=PAGES_TIMEOUT)
+            n = sum(len(v) for v in (pages or {}).values())
+            detail = f"{n} page(s) open"
+        except Exception:
+            detail = "reachable (no page enumerated -- open a Safari page)"
+        return True, detail
+    finally:
+        await close_all()
 
 
 def doctor(port: int, udid: str = "") -> int:
@@ -159,15 +170,20 @@ def doctor(port: int, udid: str = "") -> int:
     async def _info():
         from pymobiledevice3.lockdown import create_using_usbmux
         ld = await create_using_usbmux(serial=serial)
-        name = await ld.get_value(key="DeviceName")
-        ver = await ld.get_value(key="ProductVersion")
         try:
-            c = ld.close()
-            if asyncio.iscoroutine(c):
-                await c
-        except Exception:
-            pass
-        return name, ver
+            # In a finally, because get_value is what fails when trust is the problem
+            # -- the very case this stage reports -- and returning past the close left
+            # a lockdown client open on the device each time we diagnosed it.
+            name = await ld.get_value(key="DeviceName")
+            ver = await ld.get_value(key="ProductVersion")
+            return name, ver
+        finally:
+            try:
+                c = ld.close()
+                if asyncio.iscoroutine(c):
+                    await c
+            except Exception:
+                pass
     try:
         name, ver = asyncio.run(_info())
         line(2, total, "lockdown handshake / trust", "OK", f"{name}  iOS {ver}")
