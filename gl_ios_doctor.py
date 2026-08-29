@@ -100,12 +100,23 @@ async def _probe_webinspector(serial: str):
     insp = WebinspectorService(lockdown=lockdown)
 
     async def close_all():
-        """Hand both clients back. This must run on EVERY exit, success or not:
-        the failure paths are the ones that matter. A wedged connection is what
-        brings people here, a timeout or WebInspectorNotEnabledError (Web Inspector
-        switched off -- the likeliest stage-3 failure) used to return past the
-        cleanup, and a leaked lockdown / Web Inspector session is exactly what
-        ios-recover.sh exists to clear. Diagnosing must not deepen the hole."""
+        """Hand both clients back. This must run on EVERY exit, success or not: a
+        timeout or WebInspectorNotEnabledError (Web Inspector switched off -- the
+        likeliest stage-3 failure) used to return past the cleanup, so the paths
+        that fail were the only ones tearing down abruptly. Nothing justified them
+        differing from the path that succeeds, which closes deliberately and waits
+        for the transport.
+
+        Measured (macOS): dropping a lockdown client without closing it produces
+        "Fatal error on SSL transport / OSError: [Errno 9] Bad file descriptor /
+        RuntimeError: Event loop is closed" at exit -- the same noise the
+        set_exception_handler above exists to swallow.
+
+        NOT measured: whether the device keeps anything. --check is one-shot and
+        exits seconds later, so the OS closes these sockets either way. An earlier
+        version of this comment asserted a session was left on the phone for
+        ios-recover.sh to clear; that was inference stated as fact, and the
+        measurement to settle it was never taken."""
         for closer in (insp.close, getattr(lockdown, "aclose", None), getattr(lockdown, "close", None)):
             if not closer:
                 continue
@@ -173,7 +184,8 @@ def doctor(port: int, udid: str = "") -> int:
         try:
             # In a finally, because get_value is what fails when trust is the problem
             # -- the very case this stage reports -- and returning past the close left
-            # a lockdown client open on the device each time we diagnosed it.
+            # the client unclosed on exactly the runs that report a failure. Same
+            # reasoning, and same limits, as close_all() above.
             name = await ld.get_value(key="DeviceName")
             ver = await ld.get_value(key="ProductVersion")
             return name, ver
