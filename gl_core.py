@@ -404,7 +404,11 @@ def fmt_stack_frames(stack: dict) -> str:
 
 
 # ---- CDP event handling -----------------------------------------
-def handle_console_api(p: dict):
+def fmt_console_api(p: dict) -> str:
+    """Format a Runtime.consoleAPICalled payload into one output line (several, when
+    stack_for_trace expands a trace). Split out of handle_console_api so the iOS page
+    readers can format from their own threads -- output stays single-writer, with the
+    main loop draining their queue. Same split as fmt_log_entry / handle_log_entry."""
     stack = p.get("stackTrace")
     prefix = loc_prefix(stack)
     msg = " ".join(fmt_ro(a) for a in p.get("args", []))
@@ -413,7 +417,11 @@ def handle_console_api(p: dict):
         sf = fmt_stack_frames(stack)
         if sf:
             line += "\n" + sf
-    out(line)
+    return line
+
+
+def handle_console_api(p: dict):
+    out(fmt_console_api(p))
 
 
 def handle_exception(p: dict):

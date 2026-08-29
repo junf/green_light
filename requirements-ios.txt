@@ -6,7 +6,13 @@
 # CdpTarget so one untranslatable message cannot kill the receive loop). None of
 # that is public API, so an unpinned upgrade can break capture silently.
 # Verified working here: 9.36.0 against iOS 26.5.2 (Windows).
-# Reported by review, not verified here: from 10.2.0 the bridge emits console-api
-# output as Runtime.consoleAPICalled instead of Log.entryAdded, which _PageReader
-# does not read -- raise the bound only together with that handling.
+#
+# The bound is deliberately conservative rather than permanent. v10.2.0 (2026-07-28,
+# PR #1803) rewrote the CDP bridge, and that single release both:
+#   - FIXES the two crashes _harden_cdp_target() works around (isProvisional now has
+#     a default; evaluate_and_result guards a missing "result"), and
+#   - CHANGES console-api output to Runtime.consoleAPICalled instead of Log.entryAdded.
+# gl_ios._PageReader now reads both shapes, so the second point no longer blocks the
+# upgrade. Raise the bound once >=10.2 has been tried against real hardware; then
+# _harden_cdp_target() can shrink or go. Until then this pins to what was measured.
 pymobiledevice3>=9.35,<10.2

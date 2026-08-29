@@ -5,7 +5,10 @@ iOS source: record the Safari console of a USB-connected iPhone / iPad.
 iOS Safari speaks the WebKit Web Inspector Protocol (not CDP), reachable only
 through Apple's usbmux/lockdown services. pymobiledevice3 bridges that to CDP:
 it serves a CDP endpoint on 127.0.0.1:<port> whose pages are the device's Safari
-tabs, translating WebKit's Console.messageAdded into CDP's Log.entryAdded.
+tabs, translating WebKit's Console.messageAdded into a CDP console event. Which
+event depends on the bridge's version -- Log.entryAdded up to 10.1.0, and from
+10.2.0 Runtime.consoleAPICalled for console-api output with only browser-generated
+logs left as Log.entryAdded -- so the page reader below handles both.
 
 Flow:
   1. Start that CDP bridge in-process (a background thread with its own asyncio
@@ -199,8 +202,9 @@ class _PageReader(threading.Thread):
             ws.send(json.dumps({"id": _id[0], "method": method, "params": {}}))
             return _id[0]
 
-        # The bridge maps WebKit's Console.messageAdded onto CDP's Log.entryAdded;
-        # console output and uncaught exceptions both arrive that way.
+        # The bridge maps WebKit's Console.messageAdded onto a CDP console event
+        # (Log.entryAdded, or Runtime.consoleAPICalled from 10.2.0 -- both are read
+        # below); console output and uncaught exceptions arrive that way.
         try:
             for m in ("Runtime.enable", "Console.enable", "Log.enable"):
                 send(m)
@@ -237,6 +241,15 @@ class _PageReader(threading.Thread):
                 if msg.get("method") == "Log.entryAdded":
                     self.last_device_reply = time.time()
                     self.sink.put(core.fmt_log_entry(msg.get("params", {})))
+                elif msg.get("method") == "Runtime.consoleAPICalled":
+                    # pymobiledevice3 >= 10.2.0 maps console-api messages onto
+                    # Runtime.consoleAPICalled (Chrome's own shape) and leaves only
+                    # browser-generated logs as Log.entryAdded. Read both, so a capture
+                    # does not depend on the bridge's version. Unreachable on the
+                    # currently pinned 9.3x, which never emits it. Same formatter as the
+                    # desktop source, so args and file:line render identically.
+                    self.last_device_reply = time.time()
+                    self.sink.put(core.fmt_console_api(msg.get("params", {})))
         except WebSocketException:
             pass       # tab closed / navigated away: the poller will re-attach
         finally:
