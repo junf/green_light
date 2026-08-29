@@ -36,6 +36,25 @@ PY=".venv/bin/python"; [ -x "$PY" ] || PY="python3"
 LOGBIN=/usr/bin/log        # 'log' may be shadowed by a shell function; use the absolute path
 REF="${1:-}"
 
+# The ref names a config file and is also spliced into an ERE further down, so check it
+# before either use. A regex metacharacter here widens the process match to someone
+# else's capture: measured on macOS, `ios|android` matched a running `--config android`
+# -- exactly what the GLOG_PAT comment below exists to prevent. Restricting the set also
+# keeps a ref from reaching outside this directory when it becomes a file name.
+# Same character set as SAFE_REF in chrome_console_logger.py.
+case "$REF" in
+  *[!A-Za-z0-9._-]*)
+    echo "[error] Invalid config ref: $REF"
+    echo "        Letters, digits, dot, underscore and hyphen only (as in: ./ios-recover.sh ios)."
+    exit 2 ;;
+esac
+# A dot is legal in a config name but is a wildcard in the pattern, so escape what the
+# check let through. Escaping by exclusion rather than by a list of metacharacters means
+# a widened set above cannot silently outgrow this line. That is not the same as making
+# any set safe: POSIX leaves "\" before an ordinary character undefined, so it is the
+# check above that keeps this to "\." -- the only escape it can currently produce.
+REF_ESC="$(printf '%s' "$REF" | sed 's/[^A-Za-z0-9_-]/\\&/g')"
+
 # Port comes from the config you name -- never guessed. Without a ref we simply skip
 # the stage that acts on a port, rather than picking one and killing whoever holds it.
 PORT=""
@@ -90,7 +109,7 @@ echo "[2] Looking for leftover processes on this Mac..."
 # \b form missed it entirely and instead matched an unrelated --config iosbogus, i.e.
 # it skipped the process we meant to stop and offered to kill a live capture we did not.
 if [ -n "$REF" ]; then
-  GLOG_PAT="chrome_console_logger\.py.*--config[= ]${REF}( |\$)"
+  GLOG_PAT="chrome_console_logger\.py.*--config[= ]${REF_ESC}( |\$)"
 else
   GLOG_PAT="chrome_console_logger\.py"
 fi
