@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from gl_check import (line, bridge_pages, endpoint_probe,
+from gl_check import (line, bridge_pages, endpoint_probe, is_ios_bridge,
                       PORT_FREE, PORT_FOREIGN, PORT_CDP)
 
 # pymobiledevice3 is import-heavy (and prints a urllib3/LibreSSL warning); import
@@ -184,7 +184,16 @@ def doctor(port: int, udid: str = "") -> int:
     # Android, the iOS bridge is in-process uvicorn (gl_ios._Bridge), so a *foreign*
     # process on this port is not a harmless leftover: it guarantees the next capture
     # dies with 'port already in use'. Report that as a failure rather than green.
-    state, _ = endpoint_probe(port)
+    state, info = endpoint_probe(port)
+    if state == PORT_CDP and not is_ios_bridge(info):
+        # A real DevTools endpoint, but not ours -- a desktop Chrome, or an adb forward
+        # on a colliding port. Our bridge could not bind here, so this is not "already up".
+        browser = info.get("Browser", "?") if isinstance(info, dict) else "?"
+        line(3, total, "Web Inspector / Safari", "FAIL",
+             f"port {port} serves DevTools, but not our bridge ({browser})")
+        print(f"  Fix: something else holds port {port}, so the capture would fail with")
+        print(f'       "port already in use". Stop it, or change "port" in the config.')
+        return 1
     if state == PORT_CDP:
         try:
             npages = len(bridge_pages(port))

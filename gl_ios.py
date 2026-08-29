@@ -61,6 +61,68 @@ DEVICE_DEAD_SEC = 16.0    # no device reply on any live reader for this long -> 
 NO_PAGE_WARN_POLLS = 5    # polls with no page (and no live reader) before warning
 
 
+_hardened = False
+
+
+def _harden_cdp_target():
+    """Keep the bridge's message pump alive across messages it cannot translate.
+
+    pymobiledevice3's CdpTarget runs its receive loop as a bare asyncio task, and
+    any exception inside it kills that task for good. Nothing is awaiting it, so
+    the failure is completely silent -- from then on *no* message reaches the CDP
+    WebSocket: no console, and no reply to our liveness probe. The capture then
+    reports "the device stopped responding", blaming the phone for a bridge bug.
+
+    Two such breakages are reachable on current iOS (measured on iOS 26.5.2 with
+    pymobiledevice3 9.36.0):
+
+      - `Target.targetCreated` no longer carries `isProvisional`, and the handler
+        pops it without a default -> KeyError. Defaulting it lets the handler run,
+        which matters: it is also where `target_id` is refreshed, and commands are
+        addressed to that id. Dropping the event would misroute them after a
+        navigation.
+      - For a `frame` target, the handler's own `Runtime.evaluate` comes back
+        without a `result` -> KeyError. There is nothing to repair, so that message
+        is skipped; green_light only consumes Log.entryAdded and command replies.
+
+    So: repair what we can, skip what we cannot, and never let the pump die. The
+    skip is reported once rather than swallowed -- a silent drop here is exactly
+    the failure mode this function exists to remove.
+    """
+    global _hardened
+    if _hardened:
+        return
+    try:
+        from pymobiledevice3.services.web_protocol.cdp_target import CdpTarget
+    except Exception:
+        return                      # not our problem to diagnose; the bridge will report it
+    _hardened = True
+
+    created = CdpTarget._target_created
+
+    async def target_created(self, message):
+        # Absent since iOS ~26; False matches how a non-provisional target read before.
+        message.get("params", {}).get("targetInfo", {}).setdefault("isProvisional", False)
+        return await created(self, message)
+
+    pump = CdpTarget._to_output_queue
+    seen = set()
+
+    async def to_output_queue(self, message):
+        try:
+            return await pump(self, message)
+        except Exception as e:      # not BaseException: CancelledError must still stop us
+            method = message.get("method") if isinstance(message, dict) else None
+            key = (method, type(e).__name__)
+            if key not in seen:
+                seen.add(key)
+                print(f"[warn] Bridge could not translate a {method!r} message "
+                      f"({type(e).__name__}: {e}); skipping it. Console capture continues.")
+
+    CdpTarget._target_created = target_created
+    CdpTarget._to_output_queue = to_output_queue
+
+
 class _Bridge(threading.Thread):
     """Runs pymobiledevice3's CDP server (FastAPI/uvicorn) on 127.0.0.1:<port>.
 
@@ -89,6 +151,7 @@ class _Bridge(threading.Thread):
         from pymobiledevice3.services.web_protocol.cdp_server import app
         from pymobiledevice3.services.webinspector import WebinspectorService
 
+        _harden_cdp_target()
         lockdown = await create_using_usbmux(serial=self.udid or None)
         app.state.inspector = WebinspectorService(lockdown=lockdown)
         config = uvicorn.Config(app, host="127.0.0.1", port=self.port,   # 127.0.0.1: never expose the device to the LAN

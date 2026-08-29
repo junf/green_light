@@ -56,20 +56,38 @@ def endpoint_probe(port: int, settle: float = 0.0):
             state, info = PORT_FREE, None
         else:
             info = _json_version(port)
-            state = PORT_CDP if info else PORT_FOREIGN
+            # `is not None`, not truthiness: the iOS bridge answers with a target list,
+            # which is legitimately empty when no Safari page is open yet.
+            state = PORT_CDP if info is not None else PORT_FOREIGN
         if state == PORT_CDP or time.time() >= deadline:
             return state, info
         time.sleep(0.4)
 
 
 def _json_version(port: int):
-    """The endpoint's /json/version dict, or None if it is not a DevTools endpoint."""
+    """The endpoint's /json/version dict, or None if it is not a DevTools endpoint.
+
+    A list is not a failure: pymobiledevice3's bridge registers a catch-all
+    `@app.get("/json{_:path}")` ahead of its own /json/version, so on that bridge the
+    path is shadowed and returns the *target list* instead. Report it as such rather
+    than as "not DevTools" -- see is_ios_bridge()."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=4) as r:
             data = json.loads(r.read().decode("utf-8"))
-        return data if isinstance(data, dict) else None
     except Exception:
         return None
+    return data if isinstance(data, (dict, list)) else None
+
+
+def is_ios_bridge(info) -> bool:
+    """True if `info` came from green_light's own iOS bridge (pymobiledevice3).
+
+    Identifying it by /json/version's "User-Agent": "pymobiledevice3" does not work:
+    that handler is unreachable, shadowed by the catch-all route above. What the
+    shadowing itself gives us is a reliable fingerprint -- /json/version answering
+    with a JSON *array* is something no real DevTools endpoint does (Chrome, desktop
+    or Android, always returns an object). Verified against a live bridge."""
+    return isinstance(info, list)
 
 
 def bridge_pages(port: int):

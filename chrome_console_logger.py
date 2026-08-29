@@ -110,7 +110,13 @@ def running_glog_config_refs():
         if pid == me:
             continue
         try:
-            idx = next(i for i, t in enumerate(parts) if t.endswith("chrome_console_logger.py"))
+            # Strip quotes before matching: glog.bat launches us as
+            # `python "C:\...\chrome_console_logger.py"`, and Win32_Process.CommandLine
+            # reports those quotes verbatim, so a bare endswith() never matches and every
+            # running capture is skipped -- silently, since the caller just falls back to
+            # picking a config off disk. (Also covers a path containing spaces.)
+            idx = next(i for i, t in enumerate(parts)
+                       if t.strip('"').endswith("chrome_console_logger.py"))
         except StopIteration:
             continue
         args = parts[idx + 1:]

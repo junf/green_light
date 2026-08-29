@@ -164,7 +164,9 @@ def adb_unforward(adb):
 def is_android_endpoint(info) -> bool:
     """True if the CDP endpoint looks like a device (not a desktop Chrome on a
     colliding port). Android Chrome reports Android-Package / an Android UA."""
-    if not info:
+    # dict only: an iOS bridge on this port answers /json/version with a list, and
+    # .get() on it would raise rather than simply saying "not an Android endpoint".
+    if not isinstance(info, dict) or not info:
         return False
     if info.get("Android-Package"):
         return True

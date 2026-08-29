@@ -1,2 +1,12 @@
 # Only for the "ios" source (USB iPhone / iPad Safari). Not needed otherwise.
-pymobiledevice3>=9.35
+#
+# Upper bound on purpose. gl_ios.py drives pymobiledevice3's *internals* (it starts
+# the CDP bridge itself because the `webinspector cdp` CLI cannot run, rebuilds
+# webSocketDebuggerUrl because the bridge hardcodes port 9222, and patches
+# CdpTarget so one untranslatable message cannot kill the receive loop). None of
+# that is public API, so an unpinned upgrade can break capture silently.
+# Verified working here: 9.36.0 against iOS 26.5.2 (Windows).
+# Reported by review, not verified here: from 10.2.0 the bridge emits console-api
+# output as Runtime.consoleAPICalled instead of Log.entryAdded, which _PageReader
+# does not read -- raise the bound only together with that handling.
+pymobiledevice3>=9.35,<10.2

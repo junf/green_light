@@ -12,12 +12,17 @@ rem 1 = a stage failed, 2 = nothing was checked).
 set "RC=%errorlevel%"
 rem A capture ends when the user stops it, so hold the window open to show why.
 rem --check is a one-shot report: let it return without waiting for a keypress.
-rem Substring test via cmd's own string substitution -- `find` would resolve to the
-rem Unix find when Git Bash / MSYS is on PATH, which does not take these arguments.
-set "ARGS=%*"
-if not defined ARGS set "ARGS=."
+rem Test the arguments one at a time via `for`. Do NOT fold %* into a variable:
+rem cmd expands %* before it parses special characters, so `set "ARGS=%*"` with a
+rem quoted URL containing & ends up as set "ARGS="http://x/?a=1&b=2"" -- the URL's
+rem own quotes close the set, the & escapes, and cmd runs `b=2""` as a command.
+rem Each `for` element stays wrapped in the URL's quotes, which keeps & inert.
+rem (`find` is not an option here: it resolves to the Unix find when Git Bash is
+rem on PATH, which does not take these arguments.)
 set "NOPAUSE="
-if not "%ARGS%"=="%ARGS:--check=%" set "NOPAUSE=1"
-if not "%ARGS%"=="%ARGS:--doctor=%" set "NOPAUSE=1"
+for %%A in (%*) do (
+  if /i "%%~A"=="--check"  set "NOPAUSE=1"
+  if /i "%%~A"=="--doctor" set "NOPAUSE=1"
+)
 if not defined NOPAUSE pause
 exit /b %RC%
