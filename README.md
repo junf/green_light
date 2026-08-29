@@ -51,9 +51,10 @@ AI に直接ブラウザを操作させる方式（MCP など）の代替では�
 - Python パッケージ: **`websocket-client`**
 - （Android 端末の記録を使う場合のみ）**adb（Android SDK Platform-Tools）**。
   インストール方法は「Android 端末の Chrome を記録する」節を参照
-- （iPhone / iPad の記録を使う場合のみ）**`pymobiledevice3`**（`pip install -r requirements-ios.txt`）。
-  root / sudo は不要。**Windows のみ追加要件が2つある**（Apple Mobile Device Support と
-  C コンパイラ）。詳細は「iPhone / iPad の Safari を記録する」節を参照
+- （iPhone / iPad の記録を使う場合のみ）**`pymobiledevice3` 10.2 以上**
+  （`pip install -r requirements-ios.txt`）。root / sudo は不要。
+  **Windows のみ追加要件が2つある**（Apple Mobile Device Support と C コンパイラ）。
+  詳細は「iPhone / iPad の Safari を記録する」節を参照
 
 ## 対応表（ブラウザ × ロガー実行環境）
 
@@ -68,7 +69,7 @@ AI に直接ブラウザを操作させる方式（MCP など）の代替では�
 | Chrome | Android | `android` | ✅ | ✅ |
 | Chrome | iPhone / iPad | — | ✗ ² | ✗ ² |
 | Safari | PC 本体 ¹ | `safari` | ✗ ³ | ✅（実験的） |
-| Safari | iPhone / iPad | `ios` | ⚠ ⁴ | ✅ |
+| Safari | iPhone / iPad | `ios` | ✅ ⁴ | ✅ |
 
 **端末列の Android / iPhone / iPad は、いずれも PC に USB 接続した実機**を指す。
 
@@ -77,10 +78,12 @@ AI に直接ブラウザを操作させる方式（MCP など）の代替では�
 1. **PC 本体** ＝ ロガーを動かしている PC 自身。`desktop` / `safari` はその PC のブラウザを起動 / アタッチするため、**別マシンのブラウザには届かない**（＝ロガーとブラウザは同じ機体）。
 2. iPhone の Chrome は iOS 上で WebKit（WKWebView）で動き、Web インスペクタの対象外。green_light の iOS 記録は iPhone / iPad の **Safari のみ**対応。
 3. `safaridriver` は macOS 同梱ツールで **macOS 専用**。Windows / Linux には存在しない。
-4. 実装は OS 共通（純 Python）だが、**実機での記録を検証したのは macOS のみ**。Windows は
-   セットアップに追加要件が2つある（**Apple Mobile Device Support** と **C コンパイラ**。
+4. 実装は OS 共通（純 Python）だが、Windows は**セットアップに追加要件が2つある**
+   （**Apple Mobile Device Support** と **C コンパイラ**。
    「[iPhone / iPad の Safari を記録する](#iphone--ipad-の-safari-を記録するusb--pymobiledevice3)」節を参照）。
-   Windows でも **usbmux との通信までは確認済み**（端末を繋いでの記録が未検証）。
+   Windows での実機記録は 2026-08-30 に検証済み（`iPhone12,8` / iOS 26.5.2 /
+   pymobiledevice3 11.2.1 / Windows 11）。**`pymobiledevice3` は 10.2 以上が必須**
+   （理由は同節の「pymobiledevice3 のバージョン下限」）。
 
 > ⚠ **Linux をロガーにする場合は「実装済み・未検証」**（表の ⚠ 相当）。対象の組み合わせは Windows 列と同じ
 > （`desktop` / `android` / `ios` が対象で `safari` は不可）で、起動は `glog.sh`。ただし **OS 分岐を
@@ -112,7 +115,7 @@ flowchart LR
   CA -->|"android ✅"| HM
   SM -->|"safari ✅（実験的）"| HM
   SI -->|"ios ✅（検証済）"| HM
-  SI -.->|"ios ⚠（未検証）"| HW
+  SI -->|"ios ✅（検証済）"| HW
   CI -.->|"✗ 非対応"| NA["記録不可<br/>iPhone の Chrome は<br/>Web インスペクタ対象外"]:::na
 ```
 
@@ -534,7 +537,7 @@ Mac の Safari と違い**手動操作の制約は無い**（自動化ではな�
 
 **root / sudo も tunnel も不要**。実装は macOS / Windows / Linux で同じコードだが、
 **セットアップの手間は OS で大きく違う**（macOS は pip だけ、Windows は追加で2つ要る）。
-なお**実機での記録を検証したのは macOS のみ**で、Windows は未検証（[対応表](#対応表ブラウザ--ロガー実行環境)の脚注4）。
+**macOS / Windows は実機で検証済み**（[対応表](#対応表ブラウザ--ロガー実行環境)の脚注4）。Linux は未検証。
 
 ### 1. 依存を入れる
 
@@ -583,6 +586,26 @@ Windows と同じで、加えて usbmux デーモン（`usbmuxd`）が要る見�
 > pip install -r requirements-ios.txt
 > ```
 
+#### pymobiledevice3 のバージョン下限
+
+`requirements-ios.txt` は **`pymobiledevice3>=10.2`** を要求する。**下げないこと。**
+
+10.2.0（2026-07-28）で CDP ブリッジが書き直され、それ以前の版は iOS 26 の端末に対して
+次のように壊れる。いずれも**静かに壊れる**のが厄介で、症状はどれも同じに見える:
+
+```
+The device stopped responding (unplugged or locked?); recording stopped.
+```
+
+- **端末は生きている。** ブリッジ内部の受信ループが例外で死んでおり、以後どの CDP メッセージも
+  届かなくなる（生存確認の応答も来ないので「端末が落ちた」ように見える）。9.36.0 + iOS 26.5.2 で実測。
+- 10.2.0 では他に、`/json/version` が正しい応答を返すようになった（それ以前はルートが隠れており、
+  ページ一覧が返っていた）。`--check` の判定はこの両方の形を受け付ける。
+
+**上限は付けていない。** 11.2.1 まで実機で確認済み。ただし 10.2 以降は console 出力に
+ファイル名と行番号が乗らなくなったため、green_light 側で WebKit の値を補っている
+（ソース `gl_ios.py` の `_harden_cdp_target` 参照）。
+
 ### 2. 端末側の準備
 
 1. **USB 接続**し、端末で「このコンピュータを信頼しますか？」→ **信頼**（要ロック解除）
@@ -624,6 +647,12 @@ glog.bat --config ios       :: Windows
 
 まず `glog.bat --config <名前> --check`（「コマンドライン引数」の節を参照）で、
 usbmux / 信頼 / Web インスペクタのどこで止まっているかを見る。
+
+> ⚠ **`--check` は通るのに、Safari を開くと「The device stopped responding」で止まる場合。**
+> まず `pip show pymobiledevice3` でバージョンを見ること。**10.2 未満なら、まずこれを疑う**
+> （端末は正常。上の「pymobiledevice3 のバージョン下限」参照。9.36.0 + iOS 26.5.2 で実測し、
+> 更新して解消した）。`--check` が通るのは、接続の確立までは古い版でも成功し、
+> 壊れるのはその後の受信ループだから。`pip install -U -r requirements-ios.txt` で更新する。
 
 iPhone の USB 接続（iOS 17+ の muxed mode）は、**ケーブルと端末が正常でもソフト側の状態が固まる**ことがある。
 この状態は USB を挿し直しても解消しない。**macOS のみ**、その復旧を手順化した `ios-recover.sh` を同梱している。

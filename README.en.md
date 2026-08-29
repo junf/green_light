@@ -59,9 +59,9 @@ to clear + filtering both help with "hand over the minimum only").
     `/Applications/Google Chrome.app` (and `~/Applications/...`) on macOS,
     `google-chrome` / `chromium` etc. on PATH on Linux.
 - Python package: **`websocket-client`**
-- (Only if you record an iPhone / iPad) **`pymobiledevice3`** (`pip install -r requirements-ios.txt`).
-  No root/sudo needed. **Windows needs two extra things** (Apple Mobile Device Support and a C
-  compiler). See "Recording an iPhone / iPad's Safari" below.
+- (Only if you record an iPhone / iPad) **`pymobiledevice3` 10.2 or newer**
+  (`pip install -r requirements-ios.txt`). No root/sudo needed. **Windows needs two extra things**
+  (Apple Mobile Device Support and a C compiler). See "Recording an iPhone / iPad's Safari" below.
 - (Only if you use Android device recording) **adb (Android SDK Platform-Tools)**. See the
   "Recording the Chrome on an Android device" section for installation.
 
@@ -78,7 +78,7 @@ Legend: ✅ **supported** / ⚠ **implemented but unverified** / ✗ **not suppo
 | Chrome | Android | `android` | ✅ | ✅ |
 | Chrome | iPhone / iPad | — | ✗ ² | ✗ ² |
 | Safari | The PC itself ¹ | `safari` | ✗ ³ | ✅ (experimental) |
-| Safari | iPhone / iPad | `ios` | ⚠ ⁴ | ✅ |
+| Safari | iPhone / iPad | `ios` | ✅ ⁴ | ✅ |
 
 **Android / iPhone / iPad in the Device column all mean a real device connected to the PC over USB.**
 
@@ -87,11 +87,12 @@ Legend: ✅ **supported** / ⚠ **implemented but unverified** / ✗ **not suppo
 1. **The PC itself** = the very PC that runs the logger. `desktop` / `safari` launch / attach to a browser on that PC, so they **cannot reach a browser on another machine** (i.e. the logger and the browser are the same machine).
 2. Chrome on iPhone runs on WebKit (WKWebView) on iOS and is not a Web Inspector target. green_light's iOS recording supports **Safari only** on iPhone / iPad.
 3. `safaridriver` ships with macOS and is **macOS-only**. It does not exist on Windows / Linux.
-4. The implementation is the same pure-Python code on every OS, but **recording from a real device has
-   only been verified on macOS**. Windows setup needs two extra things (**Apple Mobile Device Support**
-   and a **C compiler** — see
+4. The implementation is the same pure-Python code on every OS, but Windows setup **needs two extra
+   things** (**Apple Mobile Device Support** and a **C compiler** — see
    "[Recording an iPhone / iPad's Safari](#recording-an-iphone--ipads-safari-usb--pymobiledevice3)").
-   On Windows, **talking to usbmux is confirmed working**; recording with a device attached is untested.
+   Recording from a real device on Windows was verified on 2026-08-30 (`iPhone12,8` / iOS 26.5.2 /
+   pymobiledevice3 11.2.1 / Windows 11). **`pymobiledevice3` 10.2 or newer is required** — see
+   "The pymobiledevice3 version floor" in that section for why.
 
 > ⚠ Using **Linux** as the logger host is **implemented but unverified** (the ⚠ of the legend). The
 > combinations are the same as the Windows column (`desktop` / `android` / `ios` apply, `safari` does not)
@@ -124,7 +125,7 @@ flowchart LR
   CA -->|"android ✅"| HM
   SM -->|"safari ✅ (experimental)"| HM
   SI -->|"ios ✅ (verified)"| HM
-  SI -.->|"ios ⚠ (unverified)"| HW
+  SI -->|"ios ✅ (verified)"| HW
   CI -.->|"✗ not supported"| NA["cannot record<br/>Chrome on iPhone is not<br/>a Web Inspector target"]:::na
 ```
 
@@ -557,8 +558,8 @@ Inspector, it does not automate the browser).
 
 **No root/sudo and no tunnel are needed.** The same code runs on macOS / Windows / Linux, but **the
 setup effort differs a lot per OS** (macOS needs only pip; Windows needs two extra things).
-Note that **recording from a real device has only been verified on macOS**; Windows is untested
-(see footnote 4 of the [support matrix](#support-matrix-browser--logger-host)).
+**macOS and Windows are both verified against a real device** (see footnote 4 of the
+[support matrix](#support-matrix-browser--logger-host)). Linux is untested.
 
 ### 1. Install the dependency
 
@@ -609,6 +610,27 @@ be required.
 > pip install -r requirements-ios.txt
 > ```
 
+#### The pymobiledevice3 version floor
+
+`requirements-ios.txt` asks for **`pymobiledevice3>=10.2`**. **Do not lower it.**
+
+10.2.0 (2026-07-28) rewrote the CDP bridge. Against an iOS 26 device, every earlier release breaks in
+ways that all surface as the same line -- and all of them break *quietly*:
+
+```
+The device stopped responding (unplugged or locked?); recording stopped.
+```
+
+- **The device is fine.** A receive loop inside the bridge has died on an exception, after which no CDP
+  message arrives at all -- including the reply to our liveness probe, which is what makes it read as a
+  device that went away. Measured on 9.36.0 against iOS 26.5.2.
+- 10.2.0 also made `/json/version` answer properly (before it, a catch-all route shadowed the path and
+  returned the page list instead). `--check` accepts both shapes.
+
+**There is no upper bound.** 11.2.1 is verified against a real device. Note that from 10.2 on the bridge
+stopped putting the file name and line number on console output, so green_light supplies WebKit's values
+itself (see `_harden_cdp_target` in `gl_ios.py`).
+
 ### 2. Prepare the device
 
 1. **Connect over USB**, unlock the device and tap **Trust** on "Trust This Computer?".
@@ -650,6 +672,13 @@ from then on. Just **use the device normally**. Stop with `Ctrl+C`.
 
 Start with `glog.bat --config <name> --check` (see "Command-line arguments") to see whether it is usbmux,
 trust, or Web Inspector that is stuck.
+
+> ⚠ **`--check` passes, but opening Safari stops with "The device stopped responding".**
+> Check `pip show pymobiledevice3` first. **Below 10.2, suspect that before anything else** (the device
+> is fine -- see "The pymobiledevice3 version floor" above; measured on 9.36.0 against iOS 26.5.2 and
+> cleared by updating). `--check` passes because establishing the connection still works on the older
+> release; what breaks is the receive loop after it. Update with
+> `pip install -U -r requirements-ios.txt`.
 
 An iPhone's USB link (the muxed mode of iOS 17+) can get **stuck in software even when the cable and the
 phone are fine**, and re-plugging USB does not clear that state. For **macOS only**, `ios-recover.sh` ships
