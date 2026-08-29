@@ -69,6 +69,21 @@ _hardened = False
 MIN_BRIDGE = (10, 2)      # first release whose CDP bridge we rely on (see requirements-ios.txt)
 
 
+def _webkit_line_to_cdp(n):
+    """WebKit's console messages number lines from 1; CDP's lineNumber is 0-based, and
+    every formatter in gl_core adds 1 back for display. The bridge copies WebKit's value
+    across untouched, so without this every iOS line reads one higher than the source.
+    Normalise here, at the one boundary where the value is known to have come from
+    WebKit, and gl_core keeps a single convention for all sources.
+
+    Measured: a console.log in a one-line minified bundle reported line 1 and printed
+    as ':2'."""
+    try:
+        return max(int(n) - 1, 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _bridge_version():
     """(major, minor) of the installed pymobiledevice3, or None if unreadable."""
     try:
@@ -102,15 +117,18 @@ def _harden_cdp_target():
     Version-specific crash workarounds used to live here too (`isProvisional` popped
     without a default; `evaluate_and_result` indexing a missing "result"). Both were
     fixed upstream in 10.2.0, which is why that is the floor in requirements-ios.txt.
+
+    Both targets are private methods, and with no upper bound upstream is free to
+    rename them. So each repair is attached independently and only if its target is
+    still there: a rename must cost that one repair, not the capture. Reaching this
+    function's own failure into _Bridge.run would surface as "could not reach the
+    device", advising the user to check a USB cable that was never the problem.
     """
     global _hardened
-    if _hardened:
-        return
     try:
         from pymobiledevice3.services.web_protocol.cdp_target import CdpTarget
     except Exception:
         return                      # not our problem to diagnose; the bridge will report it
-    _hardened = True
 
     ver = _bridge_version()
     if ver is not None and ver < MIN_BRIDGE:
@@ -121,40 +139,55 @@ def _harden_cdp_target():
               "incomplete on current iOS.")
         print("       Upgrade with:  pip install -U -r requirements-ios.txt")
 
-    console_added = CdpTarget._console_message_added
+    console_added = getattr(CdpTarget, "_console_message_added", None)
+    if console_added is None:
+        print("[warn] This pymobiledevice3 has no CdpTarget._console_message_added; "
+              "iOS console lines will have no file:line prefix.")
+    else:
+        async def console_message_added(self, message):
+            cm = message.get("params", {}).get("message", {})
+            if cm.get("source") != "console-api":
+                return await console_added(self, message)
+            before = getattr(self, "_last_console_api_call", None)
+            result = await console_added(self, message)
+            # Annotating after the handler has queued the message is safe only because
+            # the bridge's output_queue is unbounded: put() never blocks, so nothing
+            # consumes the dict before we return. If upstream ever gives that queue a
+            # maxsize, a full queue would suspend put() and the consumer could send the
+            # params before this runs -- annotate before the call instead.
+            # The handler stashes the params it just queued; annotate only those, so a
+            # replayed repeat-count message cannot pick up a newer message's location.
+            params = getattr(self, "_last_console_api_call", None)
+            if isinstance(params, dict) and params is not before:
+                if "url" in cm:
+                    params["url"] = cm["url"]
+                if "line" in cm:
+                    params["lineNumber"] = _webkit_line_to_cdp(cm["line"])
+            return result
 
-    async def console_message_added(self, message):
-        cm = message.get("params", {}).get("message", {})
-        if cm.get("source") != "console-api":
-            return await console_added(self, message)
-        before = getattr(self, "_last_console_api_call", None)
-        result = await console_added(self, message)
-        # The handler stashes the params it just queued; annotate only those, so a
-        # replayed repeat-count message cannot pick up a newer message's location.
-        params = getattr(self, "_last_console_api_call", None)
-        if isinstance(params, dict) and params is not before:
-            if "url" in cm:
-                params["url"] = cm["url"]
-            if "line" in cm:
-                params["lineNumber"] = cm["line"]
-        return result
+        CdpTarget._console_message_added = console_message_added
 
-    pump = CdpTarget._to_output_queue
-    seen = set()
+    pump = getattr(CdpTarget, "_to_output_queue", None)
+    if pump is None:
+        print("[warn] This pymobiledevice3 has no CdpTarget._to_output_queue; a message "
+              "the bridge cannot translate may end the capture instead of being skipped.")
+    else:
+        seen = set()
 
-    async def to_output_queue(self, message):
-        try:
-            return await pump(self, message)
-        except Exception as e:      # not BaseException: CancelledError must still stop us
-            method = message.get("method") if isinstance(message, dict) else None
-            key = (method, type(e).__name__)
-            if key not in seen:
-                seen.add(key)
-                print(f"[warn] Bridge could not translate a {method!r} message "
-                      f"({type(e).__name__}: {e}); skipping it. Console capture continues.")
+        async def to_output_queue(self, message):
+            try:
+                return await pump(self, message)
+            except Exception as e:  # not BaseException: CancelledError must still stop us
+                method = message.get("method") if isinstance(message, dict) else None
+                key = (method, type(e).__name__)
+                if key not in seen:
+                    seen.add(key)
+                    print(f"[warn] Bridge could not translate a {method!r} message "
+                          f"({type(e).__name__}: {e}); skipping it. Console capture continues.")
 
-    CdpTarget._console_message_added = console_message_added
-    CdpTarget._to_output_queue = to_output_queue
+        CdpTarget._to_output_queue = to_output_queue
+
+    _hardened = True                # only now: a partial application must be retried
 
 
 class _Bridge(threading.Thread):
@@ -271,14 +304,20 @@ class _PageReader(threading.Thread):
                     self.last_device_reply = time.time()   # device answered -> alive
                 if msg.get("method") == "Log.entryAdded":
                     self.last_device_reply = time.time()
-                    self.sink.put(core.fmt_log_entry(msg.get("params", {})))
+                    params = msg.get("params", {})
+                    entry = params.get("entry")
+                    if isinstance(entry, dict) and "lineNumber" in entry:
+                        # Browser-generated logs reach us straight from the bridge, so
+                        # their line is still WebKit's 1-based one. See _webkit_line_to_cdp.
+                        entry["lineNumber"] = _webkit_line_to_cdp(entry["lineNumber"])
+                    self.sink.put(core.fmt_log_entry(params))
                 elif msg.get("method") == "Runtime.consoleAPICalled":
-                    # pymobiledevice3 >= 10.2.0 maps console-api messages onto
-                    # Runtime.consoleAPICalled (Chrome's own shape) and leaves only
-                    # browser-generated logs as Log.entryAdded. Read both, so a capture
-                    # does not depend on the bridge's version. Unreachable on the
-                    # currently pinned 9.3x, which never emits it. Same formatter as the
-                    # desktop source, so args and file:line render identically.
+                    # This is the main path, not a fallback: from 10.2.0 the bridge maps
+                    # console-api messages onto Runtime.consoleAPICalled (Chrome's own
+                    # shape), leaving Log.entryAdded above for browser-generated logs
+                    # only. Both are read so a capture does not depend on the bridge's
+                    # version. Same formatter as the desktop source, so args and
+                    # file:line render identically.
                     self.last_device_reply = time.time()
                     self.sink.put(core.fmt_console_api(msg.get("params", {})))
         except WebSocketException:
