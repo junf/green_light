@@ -84,17 +84,19 @@ def is_ios_bridge(info) -> bool:
 
     Two shapes, because the bridge changed under us:
       - An object identifying itself as "pymobiledevice3" in "User-Agent". This is
-        the documented handler, and it answers on 11.2.1 (measured against a live
-        bridge).
-      - An array. On 9.3x the catch-all `@app.get("/json{_:path}")` was registered
-        ahead of /json/version and swallowed it, so the path returned the target
-        list instead. No real DevTools endpoint answers /json/version with an array
-        -- Chrome, desktop or Android, always returns an object -- so the shadowing
-        is itself a usable fingerprint.
+        the documented handler, and it answers from 10.2.0 on (measured against a
+        live 11.2.1 bridge).
+      - An array. Up to 10.1.0 the catch-all `@app.get("/json{_:path}")` was
+        registered ahead of /json/version and swallowed it, so the path returned the
+        target list instead. No real DevTools endpoint answers /json/version with an
+        array -- Chrome, desktop or Android, always returns an object -- so the
+        shadowing is itself a usable fingerprint.
 
-    Accept both. The floor is 10.2, so the array case should not arise, but reading
-    it as "someone else's endpoint" would be worse than accepting it: that verdict
-    tells the user to stop a process that is in fact their own capture."""
+    10.2.0 both fixed the route order and is the floor in requirements-ios.txt, so
+    the array shape is reachable only by running below that floor. It is still
+    accepted rather than dropped: reading it as "someone else's endpoint" would tell
+    the user to stop a process that is in fact their own capture, and being wrong in
+    that direction costs them a running recording."""
     if isinstance(info, dict):
         return info.get("User-Agent") == "pymobiledevice3"
     return isinstance(info, list)
