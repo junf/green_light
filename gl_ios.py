@@ -125,6 +125,8 @@ def _harden_cdp_target():
     device", advising the user to check a USB cable that was never the problem.
     """
     global _hardened
+    if _hardened:
+        return
     try:
         from pymobiledevice3.services.web_protocol.cdp_target import CdpTarget
     except Exception:
@@ -187,7 +189,11 @@ def _harden_cdp_target():
 
         CdpTarget._to_output_queue = to_output_queue
 
-    _hardened = True                # only now: a partial application must be retried
+    # Only a complete application counts as done. If a repair was skipped because its
+    # target was missing, leave the flag down so a later call can try again -- a future
+    # bridge version may expose it, and re-wrapping what did attach is harmless (each
+    # wrapper recomputes from the incoming WebKit message, so nothing is applied twice).
+    _hardened = console_added is not None and pump is not None
 
 
 class _Bridge(threading.Thread):

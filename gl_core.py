@@ -415,7 +415,12 @@ def fmt_console_api(p: dict) -> str:
         # iOS only. Its bridge sends console-api output with no stackTrace, so
         # gl_ios copies WebKit's url/line onto the payload for us. Chrome never sets
         # these, so this is inert for the desktop and android sources.
-        prefix = f"{basename(p['url'])}:{p.get('lineNumber', 0) + 1}"
+        # The two are copied independently, so a message can carry a url and no line.
+        # Print the file alone then -- defaulting the number would assert line 1 of a
+        # file we were never told a line for.
+        prefix = basename(p["url"])
+        if isinstance(p.get("lineNumber"), int):
+            prefix += f":{p['lineNumber'] + 1}"
     msg = " ".join(fmt_ro(a) for a in p.get("args", []))
     line = f"{prefix} {msg}".strip()
     if CFG["stack_for_trace"] and p.get("type") == "trace" and stack:
