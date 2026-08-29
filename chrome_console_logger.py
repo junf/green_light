@@ -57,7 +57,15 @@ def _process_lines():
                "Get-CimInstance Win32_Process | ForEach-Object "
                "{ '{0} {1}' -f $_.ProcessId, $_.CommandLine }"]
     else:
-        cmd = ["ps", "-Ao", "pid=,command="]
+        # -ww (unlimited width) is hardening, not a fix: BSD ps clips each line to the
+        # terminal width only when stdout is a tty, and capture_output below always
+        # makes it a pipe. Measured on macOS with a 292-char command line -- through a
+        # pipe it arrives whole with or without -ww, and COLUMNS is ignored. Kept
+        # because the failure it would cause is silent and awful: a line clipped after
+        # the script name but before --config parses as the default config, and --check
+        # would then announce it had auto-selected the running capture while
+        # diagnosing a different device.
+        cmd = ["ps", "-Awwo", "pid=,command="]
     try:
         # Bytes, not text=True: another process's command line can hold anything, and
         # on a cp932 console text mode raises UnicodeDecodeError inside subprocess's
