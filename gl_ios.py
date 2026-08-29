@@ -476,14 +476,14 @@ class IOSSource:
                     if not matches(url):
                         if url not in noted:
                             noted.add(url)
-                            print(f"[info] Not recording (no filter match; check filter_enabled / presets): {url}")
+                            print(f"[info] Not recording (no filter match; check filter_enabled / presets): {core.redact(url)}")
                         continue
                     again = pid in readers        # its session went stale (typically a reload)
                     r = _PageReader(p, sink, self.stop_event)
                     r.start()
                     readers[pid] = r
                     attached_any = True
-                    print(f"[info] {'Re-attached' if again else 'Attached'}: {url}")
+                    print(f"[info] {'Re-attached' if again else 'Attached'}: {core.redact(url)}")
 
                 # Detect a lost device (unplugged / locked). The bridge hides it -- it
                 # keeps serving cached pages -- so we rely on the readers' liveness: a

@@ -249,6 +249,9 @@ def main():
     core.CONFIG_PATH = core.resolve_config_path(config_ref)
     core.CFG = core.load_config(core.CONFIG_PATH, explicit=bool(config_ref))   # "" (default) is never a hard error
     print(f"[info] Config: {core.CONFIG_PATH}")
+    # Before anything can print a URL. The first one appears while the start URL is
+    # still being validated, long before there is a log file to arm.
+    core.compile_redactors()
 
     # --check / --doctor: report whether green_light can see the device and exit,
     # instead of starting a capture (and waiting for a cryptic 30s timeout).

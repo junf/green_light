@@ -180,9 +180,9 @@ class SafariSource:
         if start_url:
             try:
                 self._wd("POST", f"/session/{self.session_id}/url", {"url": start_url})
-                print(f"[info] Opened: {start_url}")
+                print(f"[info] Opened: {core.redact(start_url)}")
             except Exception as e:
-                print(f"[warn] Could not open start URL ({start_url}): {e}")
+                print(f"[warn] Could not open start URL ({core.redact(start_url)}): {e}")
         else:
             print("[warn] No start URL. Safari's automation window blocks manual input (glass pane),")
             print("       so nothing can be navigated to: pass a URL or set start_url in the config.")

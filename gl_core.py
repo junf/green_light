@@ -280,11 +280,11 @@ def safe_url(url: str) -> str:
     if not u:
         return ""
     if u.startswith("-"):
-        print(f"[warn] Ignoring start URL that looks like a flag: {u}")
+        print(f"[warn] Ignoring start URL that looks like a flag: {redact(u)}")
         return ""
     low = u.lower()
     if low.startswith("javascript:") or low.startswith("data:"):
-        print(f"[warn] Ignoring disallowed URL scheme: {u}")
+        print(f"[warn] Ignoring disallowed URL scheme: {redact(u)}")
         return ""
     return u
 
@@ -339,10 +339,21 @@ def out(line: str):
 
 # ---- formatting helpers -----------------------------------------
 def basename(url: str) -> str:
+    """The file name to show in front of a console line.
+
+    Strip the query and fragment first. Without that a URL whose path ends in a
+    plain name still reads fine, but one carrying its identity in the query does
+    not: `/p?__frame_t=..&__frame_v=manifest.<hash>.json` renders as the whole
+    query string, which looks like a file that does not exist. That is worse than
+    a vague name -- it is a confidently wrong one.
+
+    Both fallbacks return the stripped URL, never the original: a path ending in
+    `/` leaves no segment, and returning `url` there would put the query back."""
     if not url:
         return ""
-    seg = url.rsplit("/", 1)[-1]
-    return seg or url
+    u = url.split("#", 1)[0].split("?", 1)[0]
+    seg = u.rsplit("/", 1)[-1]
+    return seg or u
 
 
 def fmt_preview(prev: dict) -> str:
@@ -493,7 +504,13 @@ _REDACTORS: list = []
 
 
 def compile_redactors():
-    """Compile CFG['redact_patterns'] once, at the start of a run.
+    """Compile CFG['redact_patterns'] once, as soon as the config is loaded.
+
+    Called from the entry point rather than from begin_log, because URLs reach the
+    terminal before any log file exists -- a rejected start URL is printed while
+    the command line is still being parsed. Compiling here means every redact()
+    call has patterns to work with, instead of a few early ones silently passing
+    text through and looking like they were covered.
 
     BEST EFFORT ONLY. Regex redaction cannot catch every secret (custom token
     shapes, ids buried in prose, ...), so it must not be treated as a guarantee:
@@ -523,7 +540,6 @@ def begin_log(log_path):
     once when overwrite is set, arm out() (via _log_path), and write the start
     marker. Shared by the CDP run loop and non-CDP sources (e.g. Safari/BiDi)."""
     global _log_path
-    compile_redactors()
     os.makedirs(CFG["output_dir"], exist_ok=True)
     if CFG["overwrite"]:
         open(log_path, "w", encoding="utf-8").close()   # clear once at startup
@@ -599,7 +615,7 @@ def run(source, start_url, active_filters, log_path):
             return
         if u not in _excluded_noted:
             _excluded_noted.add(u)
-            print(f"[info] Not recording (no filter match; check filter_enabled / presets): {u}")
+            print(f"[info] Not recording (no filter match; check filter_enabled / presets): {redact(u)}")
 
     _DISPATCH = {
         "console": handle_console_api,
@@ -642,7 +658,7 @@ def run(source, start_url, active_filters, log_path):
         def _match(u):
             return (not active_filters) or any(f in u for f in active_filters)
         if not any(_match(t.get("url", "")) for t in page_tabs()):
-            print(f"[info] No matching tab; opening: {start_url}")
+            print(f"[info] No matching tab; opening: {redact(start_url)}")
             send("Target.createTarget", {"url": start_url})
 
     if active_filters:
