@@ -66,31 +66,42 @@ NO_PAGE_WARN_POLLS = 5    # polls with no page (and no live reader) before warni
 
 _hardened = False
 
+MIN_BRIDGE = (10, 2)      # first release whose CDP bridge we rely on (see requirements-ios.txt)
+
+
+def _bridge_version():
+    """(major, minor) of the installed pymobiledevice3, or None if unreadable."""
+    try:
+        from importlib.metadata import version
+        parts = version("pymobiledevice3").split(".")
+        return int(parts[0]), int(parts[1])
+    except Exception:
+        return None
+
 
 def _harden_cdp_target():
-    """Keep the bridge's message pump alive across messages it cannot translate.
+    """Two repairs to pymobiledevice3's CdpTarget, applied before the bridge starts.
 
-    pymobiledevice3's CdpTarget runs its receive loop as a bare asyncio task, and
-    any exception inside it kills that task for good. Nothing is awaiting it, so
-    the failure is completely silent -- from then on *no* message reaches the CDP
-    WebSocket: no console, and no reply to our liveness probe. The capture then
-    reports "the device stopped responding", blaming the phone for a bridge bug.
+    1. Put the source location back on console-api output. The bridge builds
+       Runtime.consoleAPICalled from WebKit's console message but forwards only
+       type/args/context/timestamp -- `url` and `line` are dropped, even though it
+       still forwards them on its Log.entryAdded path. Without them every iOS line
+       loses its `file.js:12` prefix, which is most of what makes a captured log
+       worth reading. The values are right there on the incoming message, so copy
+       them onto the params; fmt_console_api falls back to them when a payload has
+       no stackTrace.
 
-    Two such breakages are reachable on current iOS (measured on iOS 26.5.2 with
-    pymobiledevice3 9.36.0):
+    2. Keep the message pump alive. CdpTarget's receive loop is a bare asyncio task
+       that nothing awaits, so any exception inside it kills the task silently and
+       *no* message reaches the CDP WebSocket afterwards -- no console, and no reply
+       to our liveness probe, which then reads as "the device stopped responding".
+       A translation failure should cost one message, not the capture, so skip it
+       and say so once. This is defense in depth, not a fix for a known bug: it
+       stays useful whatever the next WebKit change breaks.
 
-      - `Target.targetCreated` no longer carries `isProvisional`, and the handler
-        pops it without a default -> KeyError. Defaulting it lets the handler run,
-        which matters: it is also where `target_id` is refreshed, and commands are
-        addressed to that id. Dropping the event would misroute them after a
-        navigation.
-      - For a `frame` target, the handler's own `Runtime.evaluate` comes back
-        without a `result` -> KeyError. There is nothing to repair, so that message
-        is skipped; green_light only consumes Log.entryAdded and command replies.
-
-    So: repair what we can, skip what we cannot, and never let the pump die. The
-    skip is reported once rather than swallowed -- a silent drop here is exactly
-    the failure mode this function exists to remove.
+    Version-specific crash workarounds used to live here too (`isProvisional` popped
+    without a default; `evaluate_and_result` indexing a missing "result"). Both were
+    fixed upstream in 10.2.0, which is why that is the floor in requirements-ios.txt.
     """
     global _hardened
     if _hardened:
@@ -101,12 +112,32 @@ def _harden_cdp_target():
         return                      # not our problem to diagnose; the bridge will report it
     _hardened = True
 
-    created = CdpTarget._target_created
+    ver = _bridge_version()
+    if ver is not None and ver < MIN_BRIDGE:
+        # Older bridges crash their own receive loop on current iOS. The pump guard
+        # below keeps the capture alive, but say plainly why output may be missing.
+        print(f"[warn] pymobiledevice3 {ver[0]}.{ver[1]} is older than the "
+              f"{MIN_BRIDGE[0]}.{MIN_BRIDGE[1]} this expects; console output may be "
+              "incomplete on current iOS.")
+        print("       Upgrade with:  pip install -U -r requirements-ios.txt")
 
-    async def target_created(self, message):
-        # Absent since iOS ~26; False matches how a non-provisional target read before.
-        message.get("params", {}).get("targetInfo", {}).setdefault("isProvisional", False)
-        return await created(self, message)
+    console_added = CdpTarget._console_message_added
+
+    async def console_message_added(self, message):
+        cm = message.get("params", {}).get("message", {})
+        if cm.get("source") != "console-api":
+            return await console_added(self, message)
+        before = getattr(self, "_last_console_api_call", None)
+        result = await console_added(self, message)
+        # The handler stashes the params it just queued; annotate only those, so a
+        # replayed repeat-count message cannot pick up a newer message's location.
+        params = getattr(self, "_last_console_api_call", None)
+        if isinstance(params, dict) and params is not before:
+            if "url" in cm:
+                params["url"] = cm["url"]
+            if "line" in cm:
+                params["lineNumber"] = cm["line"]
+        return result
 
     pump = CdpTarget._to_output_queue
     seen = set()
@@ -122,7 +153,7 @@ def _harden_cdp_target():
                 print(f"[warn] Bridge could not translate a {method!r} message "
                       f"({type(e).__name__}: {e}); skipping it. Console capture continues.")
 
-    CdpTarget._target_created = target_created
+    CdpTarget._console_message_added = console_message_added
     CdpTarget._to_output_queue = to_output_queue
 
 

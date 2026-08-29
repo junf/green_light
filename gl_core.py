@@ -411,6 +411,11 @@ def fmt_console_api(p: dict) -> str:
     main loop draining their queue. Same split as fmt_log_entry / handle_log_entry."""
     stack = p.get("stackTrace")
     prefix = loc_prefix(stack)
+    if not prefix and p.get("url"):
+        # iOS only. Its bridge sends console-api output with no stackTrace, so
+        # gl_ios copies WebKit's url/line onto the payload for us. Chrome never sets
+        # these, so this is inert for the desktop and android sources.
+        prefix = f"{basename(p['url'])}:{p.get('lineNumber', 0) + 1}"
     msg = " ".join(fmt_ro(a) for a in p.get("args", []))
     line = f"{prefix} {msg}".strip()
     if CFG["stack_for_trace"] and p.get("type") == "trace" and stack:
