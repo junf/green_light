@@ -28,7 +28,7 @@ from __future__ import annotations
 import subprocess
 
 import gl_android as A
-from gl_check import (line, bridge_pages, endpoint_probe,
+from gl_check import (line, bridge_pages, endpoint_probe, is_ios_bridge,
                       PORT_FREE, PORT_FOREIGN, PORT_CDP)
 
 # How long to keep probing a forward we just created before calling it dead.
@@ -124,9 +124,23 @@ def doctor(port: int, serial: str = "") -> int:
             print("  Fix: open Chrome on the device (a debuggable page must exist).")
             return 1
         if not A.is_android_endpoint(info):
+            # Describe the squatter without assuming its shape. `info` is whatever
+            # /json/version returned, and green_light's own iOS bridge answers with an
+            # array below its 10.2 floor -- calling .get() on that turned a report we
+            # own into an AttributeError traceback (measured). Same guard as the iOS
+            # doctor's mirror case, and name the bridge when we recognise it: "your
+            # other capture" and "a stray Chrome" are not the same thing to fix.
+            if is_ios_bridge(info):
+                what = "green_light's own iOS bridge"
+            elif isinstance(info, dict):
+                what = info.get("Browser", "?")
+            else:
+                what = "unrecognized"
             line(3, total, "Chrome DevTools / pages", "FAIL",
-                 f"not an Android endpoint ({info.get('Browser', '?')})")
-            print(f'  Fix: a different Chrome is using port {port}. Change "port" in the config.')
+                 f"not an Android endpoint ({what})")
+            print(f'  Fix: something else is using port {port}. Change "port" in the config.')
+            if is_ios_bridge(info):
+                print("       An iOS capture and an Android one need separate ports.")
             return 1
         # The endpoint is real and is the device's. Report what was actually observed:
         # a reachable endpoint does not prove a capture is running, only that one could.
