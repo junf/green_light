@@ -360,8 +360,15 @@ Notes:
 - If the file specified with `--config` does not exist, it exits with an error to avoid recording to the
   wrong place (`default` is the exception: it starts with the defaults as before even without `config.json`).
 - `config.<name>.json` is not tracked by Git (only `config.example.json` is tracked).
-- If you give each config a different `port` and `profile_dir`, you can run loggers for multiple projects at
-  the same time.
+- **You can run several loggers at once.** What has to differ depends on the source:
+  - Always … **`port`** and **`output_dir` / `log_filename`**. Sharing an output file means the
+    second logger truncates the first one's log on `overwrite: true`.
+  - `desktop` … also **`profile_dir`** (only one Chrome can run per profile).
+  - Phones (`android` / `ios`) … `profile_dir` is irrelevant; **the ports must differ**
+    (e.g. desktop 9222 / android 9333 / ios 9444). **Recording iOS and Android at the same time is
+    verified**: a Pixel 8a and an iPhone attached over USB together, captured by two processes, with
+    neither log picking up the other's output. If the ports do collide, `--check` says so and tells
+    you to change one.
 
 ## Recording the Chrome on an Android device (USB / CDP over ADB)
 
@@ -461,9 +468,18 @@ recording. Stop with `Ctrl+C` (the forward is also removed automatically on exit
 > (it's localhost-only so the impact is small, and you'll notice next time via "port in use"). If it bothers
 > you, remove it with `adb forward --remove-all`.
 
-> ℹ️ The device counts as **`offline` while the screen is locked or the Settings app is in front.** If the
-> device isn't online at startup, it prompts "please unlock the screen" and **waits automatically**, then
-> starts recording as soon as it comes online (the state where `adb devices` shows `device`).
+> ℹ️ **Turning the screen off or locking the device does not stop the recording** -- this is where
+> Android differs from iOS. Measured (Pixel 8a / Chrome 151, screen off and locked): `adb devices` still
+> reported `device`, `--check` passed 3/3, and **console output from pages already open still arrived**.
+> What you cannot do in that state is open a *new* tab: Chrome answers `Could not create new page`.
+>
+> When the device does go `offline`, startup **waits automatically** and begins recording as soon as it
+> comes back. Locking the screen was not what produced `offline` here, so if you see it, try re-plugging
+> USB or `adb reconnect`.
+
+> ℹ️ **iOS does stop when locked.** The Safari page on the device freezes, so while recording with
+> `source: "ios"`, **do not lock the device** (turning auto-lock off is the reliable way). Both are
+> "a phone on USB", but Android (adb + CDP) and iOS (Web Inspector) do not have the same conditions.
 
 > ℹ️ The moment it attaches, each tab **re-sends the console it had buffered**, so a burst of logs appears
 > right after connecting (this is Chrome's behavior — the same as seeing past logs when you open DevTools
@@ -785,6 +801,13 @@ Things to watch out for in operation:
   the URL set to trusted values. **Don't use a config received from / synced by someone else as-is** (the
   executable or output destination could be swapped, leading to arbitrary program execution or writes to
   arbitrary locations).
+
+## Contributing / working on the code
+
+Commit message style, the branch flow, the language rules (code and anything printed is English; the
+Japanese README is the canonical one), the invariants that must not be broken, and how changes are
+verified all live in **[CONTRIBUTING.md](CONTRIBUTING.md)**. It is meant to be enough on its own,
+whether you are forking it or picking the project up from another machine.
 
 ## License
 

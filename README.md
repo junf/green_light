@@ -341,7 +341,15 @@ Enter a number (Enter = 3):
 - `--config` で指定したファイルが無いときは、誤った場所への記録を防ぐためエラー終了する
   （`default` は例外で、`config.json` が無くても従来どおり既定値で起動）。
 - `config.<名前>.json` は Git 管理対象外（`config.example.json` だけ追跡される）。
-- 各設定で `port` と `profile_dir` を別にすれば、複数プロジェクトのロガーを同時に動かせる。
+- **複数のロガーを同時に動かせる。** 分けるものは source によって違う:
+  - すべて共通 … **`port`** と **`output_dir` / `log_filename`**。
+    出力先が同じだと、`overwrite: true` の後発が先発のログを切り詰める。
+  - `desktop` … 加えて **`profile_dir`**（同じプロファイルの Chrome は 1 つしか起動できない）。
+  - スマホ（`android` / `ios`）… `profile_dir` は無関係。**`port` を必ず分ける**
+    （例 desktop 9222 / android 9333 / ios 9444）。
+    **iOS と Android の同時記録は実測済み**（Pixel 8a と iPhone を同時に USB 接続し、
+    2 プロセスで記録。互いのログに相手の出力が混ざらないことを確認）。
+    ポートが衝突していると、`--check` が「別のポートを使うこと」と教えてくれる。
 
 ## Android 端末の Chrome を記録する（USB / CDP over ADB）
 
@@ -439,9 +447,19 @@ glog.bat --config android      :: Windows
 > ℹ️ `Ctrl+C` 以外（ターミナルを閉じる等）で落ちると `adb forward` が残ることがある（localhost のみで
 > 実害は小さく、次回は "port in use" で気づける）。気になれば `adb forward --remove-all` で消せる。
 
-> ℹ️ 端末は**ロック中や設定アプリを開いている間は `offline` 扱い**になる。起動時に端末が
-> オンラインでなければ「画面ロックを解除してください」と促して**自動で待機**し、
-> オンラインになり次第そのまま記録を開始する（`adb devices` で `device` になる状態）。
+> ℹ️ **画面を消しても・ロックしても記録は止まらない**（iOS とはここが違う）。実測（Pixel 8a /
+> Chrome 151、画面オフ＋ロック中）:`adb devices` は `device` のまま、`--check` は 3/3 で通り、
+> **既に開いているページのコンソール出力もそのまま届いた**。
+> ただし**この状態で新しいタブは開けない**（Chrome が `Could not create new page` を返す）。
+>
+> 端末が `offline` になったときは、起動時に**自動で待機**してオンラインになり次第記録を始める。
+> `offline` は画面ロックそのものでは起きなかったので、出たときは USB の挿し直しや
+> `adb reconnect` を試すとよい。
+
+> ℹ️ **iOS はロックすると止まる。** 端末の Safari のページが動かなくなるため、
+> `source: "ios"` で記録している間は**端末をロックしない**（自動ロックを切っておくと確実）。
+> 同じ「USB 接続したスマホ」でも、Android（adb + CDP）と iOS（Web インスペクタ）で
+> 条件が違う点に注意。
 
 > ℹ️ アタッチした瞬間、各タブが**それまで溜めていた console をまとめて再送**するため、
 > 接続直後はログが一気に出る（Chrome の仕様。DevTools を後から開くと過去ログが見えるのと同じ）。
@@ -754,6 +772,13 @@ WebSocket connection to 'wss://…/websocket?***&vsn=2.0.0' failed
 - `config.json` の `chrome_exe` / `adb_path` / `safaridriver_path`（いずれも起動する実行ファイル）と
   URL は信頼できる値に保つこと。**他者から受け取った／同期されてきた config をそのまま使わない**
   （実行ファイルや出力先が差し替えられ、任意プログラム実行・任意の場所への書き込みになり得るため）。
+
+## 開発に参加する / 手を入れる
+
+コミットメッセージの書き方、ブランチ運用、言語の決まり（コードと画面表示は英語・
+この日本語 README が原本）、崩してはいけない不変条件、変更の確かめ方は
+**[CONTRIBUTING.md](CONTRIBUTING.md)** にまとめてある。フォークして直すときも、
+別のマシンから触るときも、まずこれを読めば足りるようにしてある。
 
 ## ライセンス
 
