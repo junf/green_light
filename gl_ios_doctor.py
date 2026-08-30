@@ -69,6 +69,18 @@ async def _device_probe(udid: str = ""):
             if d.serial == udid:
                 return DEV_OK, d.serial, d.connection_type, ""
         return DEV_MISMATCH, None, None, ", ".join(str(d.serial) for d in devices)
+    # KNOWN GAP, UNTESTED: with no UDID configured and several devices visible, this
+    # takes the first without saying so. gl_android.adb_device_state returns "multiple"
+    # and the doctor refuses, telling the user to set device_serial; there is no
+    # DEV_MULTIPLE to do the same here. What is certain is the missing check. What is
+    # not established is the consequence -- gl_ios._Bridge separately asks usbmux for
+    # "the first available" (create_using_usbmux(serial=None)), so a --check that
+    # passes and a capture that runs could land on different devices only if the list
+    # order varies between the two calls. Note list_devices() also reports Wi-Fi
+    # entries, so one phone can appear twice with different connection_type.
+    # Untested because it needs a second APPLE device: an attached Android is invisible
+    # to usbmux (it is reached through adb), so an iPhone+Android bench cannot produce
+    # a list longer than one here.
     return DEV_OK, devices[0].serial, devices[0].connection_type, ""
 
 
