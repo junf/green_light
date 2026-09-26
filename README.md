@@ -7,7 +7,8 @@
 USB 接続した iPhone / iPad の Safari。**
 
 DevTools を開いていなくても、専用の Chrome を立ち上げている間（または対象端末を USB で繋いでいる間）は、
-コンソールの内容がファイルに書き出され続ける。Chrome DevTools Protocol (CDP) でブラウザにアタッチして
+コンソールの内容がファイルに書き出され続ける。PC / Android の Chrome は Chrome DevTools Protocol (CDP)、
+iPhone / iPad の Safari は Web Inspector、Mac の Safari は WebDriver BiDi でブラウザにアタッチして
 コンソールイベントを受け取る方式なので、対象ページのソースには一切手を入れない。
 
 ### 📱 USB 接続した Android 端末の Chrome も記録できる

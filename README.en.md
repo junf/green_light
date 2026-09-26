@@ -7,9 +7,10 @@ file. It records from four targets — the Chrome on your PC, the Chrome on a US
 the Safari on a Mac, and the Safari on a USB-connected iPhone / iPad.**
 
 You don't need to have DevTools open: as long as the dedicated Chrome is running (or the target device is
-connected over USB), console output keeps streaming into the file. It works by attaching to the browser via
-the Chrome DevTools Protocol (CDP) to receive console events, so it never touches the source of the page
-being recorded.
+connected over USB), console output keeps streaming into the file. It attaches to the browser to receive
+console events — via the Chrome DevTools Protocol (CDP) for Chrome on a PC / Android, via Web Inspector
+for Safari on an iPhone / iPad, and via WebDriver BiDi for Safari on a Mac — so it never touches the
+source of the page being recorded.
 
 ### 📱 It can also record the Chrome on a USB-connected Android device
 
